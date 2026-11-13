@@ -1,0 +1,274 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Private profielinformatie en themavoorkeur van een ingelogde leerling.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "email": { "type": "string", "maxLength": 200 },
+        "displayName": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "photoURL": { "type": "string", "maxLength": 500 },
+        "themePreference": { "type": "string", "enum": ["light", "dark", "system"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "displayName", "photoURL", "createdAt", "updatedAt"]
+    },
+    "Folder": {
+      "title": "Folder",
+      "description": "Hiërarchische map voor een vak of hoofdstuk.",
+      "type": "object",
+      "properties": {
+        "ownerId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "parentId": { "type": "string", "maxLength": 128 },
+        "subject": { "type": "string", "maxLength": 80 },
+        "color": { "type": "string", "maxLength": 30 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["ownerId", "name", "parentId", "subject", "color", "createdAt", "updatedAt"]
+    },
+    "StudyItem": {
+      "title": "StudyItem",
+      "description": "Studiebestand in een map: tekstdocument, geüploade PDF, Google Doc, Google Sheet of Google Presentatie.",
+      "type": "object",
+      "properties": {
+        "ownerId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "folderId": { "type": "string", "maxLength": 128 },
+        "title": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "type": { "type": "string", "enum": ["note", "pdf", "gdoc", "gsheet", "gslide"] },
+        "subject": { "type": "string", "maxLength": 80 },
+        "content": { "type": "string", "maxLength": 300000 },
+        "fileDataUrl": { "type": "string", "maxLength": 700000 },
+        "fileName": { "type": "string", "maxLength": 200 },
+        "fileSize": { "type": "number" },
+        "driveFileId": { "type": "string", "maxLength": 200 },
+        "driveUrl": { "type": "string", "maxLength": 500 },
+        "mimeType": { "type": "string", "maxLength": 120 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "ownerId",
+        "folderId",
+        "title",
+        "type",
+        "subject",
+        "content",
+        "fileDataUrl",
+        "fileName",
+        "fileSize",
+        "driveFileId",
+        "driveUrl",
+        "mimeType",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "ScheduleTask": {
+      "title": "ScheduleTask",
+      "description": "Ingeplande leertaak in het dagelijkse oefenschema.",
+      "type": "object",
+      "properties": {
+        "ownerId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "title": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "subject": { "type": "string", "maxLength": 80 },
+        "date": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" },
+        "durationMinutes": { "type": "integer" },
+        "completed": { "type": "boolean" },
+        "notes": { "type": "string", "maxLength": 1000 },
+        "isAiGenerated": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "ownerId",
+        "title",
+        "subject",
+        "date",
+        "durationMinutes",
+        "completed",
+        "notes",
+        "isAiGenerated",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "Summary": {
+      "title": "Summary",
+      "description": "Samenvatting per vak of onderwerp met kernbegrippen en zelftest.",
+      "type": "object",
+      "properties": {
+        "ownerId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "title": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "subject": { "type": "string", "maxLength": 80 },
+        "sourceItemId": { "type": "string", "maxLength": 128 },
+        "sourceTitle": { "type": "string", "maxLength": 160 },
+        "content": { "type": "string", "maxLength": 200000 },
+        "keyTerms": { "type": "array" },
+        "selfTest": { "type": "array" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "ownerId",
+        "title",
+        "subject",
+        "sourceItemId",
+        "sourceTitle",
+        "content",
+        "keyTerms",
+        "selfTest",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "StudySet": {
+      "title": "StudySet",
+      "description": "Speelbare leerset met flashcards, memory-paren en meerkeuzevragen.",
+      "type": "object",
+      "properties": {
+        "ownerId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "title": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "subject": { "type": "string", "maxLength": 80 },
+        "sourceTitle": { "type": "string", "maxLength": 160 },
+        "flashcards": { "type": "array" },
+        "pairs": { "type": "array" },
+        "questions": { "type": "array" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "ownerId",
+        "title",
+        "subject",
+        "sourceTitle",
+        "flashcards",
+        "pairs",
+        "questions",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "ExternalTool": {
+      "title": "ExternalTool",
+      "description": "Aanpasbare snelkoppeling naar een externe leertool zoals StudyGo, Quizlet, Gimkit, YouTube of Netflix.",
+      "type": "object",
+      "properties": {
+        "ownerId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "url": { "type": "string", "minLength": 1, "maxLength": 500 },
+        "subjectLabel": { "type": "string", "maxLength": 80 },
+        "color": { "type": "string", "maxLength": 30 },
+        "iconName": { "type": "string", "maxLength": 40 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["ownerId", "name", "url", "subjectLabel", "color", "iconName", "createdAt", "updatedAt"]
+    },
+    "GameRoom": {
+      "title": "GameRoom",
+      "description": "Realtime multiplayer spelkamer met 6-cijferige code.",
+      "type": "object",
+      "properties": {
+        "roomCode": { "type": "string", "pattern": "^[0-9]{6}$" },
+        "hostId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "hostName": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "title": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "gameMode": { "type": "string", "enum": ["quiz", "speed-match"] },
+        "status": { "type": "string", "enum": ["lobby", "question", "leaderboard", "finished"] },
+        "currentQuestionIndex": { "type": "integer" },
+        "questionStartedAt": { "type": "number" },
+        "questions": { "type": "array" },
+        "pairs": { "type": "array" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "roomCode",
+        "hostId",
+        "hostName",
+        "title",
+        "gameMode",
+        "status",
+        "currentQuestionIndex",
+        "questionStartedAt",
+        "questions",
+        "pairs",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "GamePlayer": {
+      "title": "GamePlayer",
+      "description": "Deelnemer (ingelogde leerling of gast) in een realtime multiplayer spelkamer.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "nickname": { "type": "string", "minLength": 1, "maxLength": 24 },
+        "avatar": { "type": "string", "minLength": 1, "maxLength": 20 },
+        "score": { "type": "integer" },
+        "streak": { "type": "integer" },
+        "lastAnswerIndex": { "type": "integer" },
+        "lastAnswerCorrect": { "type": "boolean" },
+        "lastAnsweredQuestion": { "type": "integer" },
+        "lastPointsEarned": { "type": "integer" },
+        "joinedAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "uid",
+        "nickname",
+        "avatar",
+        "score",
+        "streak",
+        "lastAnswerIndex",
+        "lastAnswerCorrect",
+        "lastAnsweredQuestion",
+        "lastPointsEarned",
+        "joinedAt",
+        "updatedAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Geïsoleerd profiel en themavoorkeur van een leerling."
+    },
+    "/users/{userId}/folders/{folderId}": {
+      "schema": { "$ref": "#/entities/Folder" },
+      "description": "Mappen per vak en hoofdstuk van de leerling."
+    },
+    "/users/{userId}/items/{itemId}": {
+      "schema": { "$ref": "#/entities/StudyItem" },
+      "description": "Notities, PDF-bestanden, Google Docs, Google Sheets en Google Presentaties."
+    },
+    "/users/{userId}/scheduleTasks/{taskId}": {
+      "schema": { "$ref": "#/entities/ScheduleTask" },
+      "description": "Dagelijkse oefenschema-taken."
+    },
+    "/users/{userId}/summaries/{summaryId}": {
+      "schema": { "$ref": "#/entities/Summary" },
+      "description": "Geschreven en AI-gegenereerde samenvattingen."
+    },
+    "/users/{userId}/studySets/{setId}": {
+      "schema": { "$ref": "#/entities/StudySet" },
+      "description": "AI-gegenereerde flashcards, memory-paren en quizsets."
+    },
+    "/users/{userId}/externalTools/{toolId}": {
+      "schema": { "$ref": "#/entities/ExternalTool" },
+      "description": "Aanpasbare snelkoppelingen naar externe leertools."
+    },
+    "/gameRooms/{roomCode}": {
+      "schema": { "$ref": "#/entities/GameRoom" },
+      "description": "Realtime multiplayer spelkamer op basis van 6-cijferige code."
+    },
+    "/gameRooms/{roomCode}/players/{playerId}": {
+      "schema": { "$ref": "#/entities/GamePlayer" },
+      "description": "Live spelerslijst en scores binnen een spelkamer."
+    }
+  }
+}

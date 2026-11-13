@@ -1,0 +1,8 @@
+{
+  "name": "StudyFlow",
+  "description": "Slimme Nederlandse leer- en studieomgeving met AI-oefenschema's, Google Drive-integratie, samenvattingen, solo en realtime multiplayer leerspelletjes en bron-gebaseerde studiechat.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
