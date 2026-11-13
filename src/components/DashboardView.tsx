@@ -20,6 +20,7 @@ import {
 } from '../lib/studyStore';
 import { ConfirmModal } from './ConfirmModal';
 import { DashboardSkeleton } from './Skeletons';
+import { postAiJson } from '../lib/apiClient';
 
 interface DashboardViewProps {
   userId: string;
@@ -153,21 +154,21 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     }
     setAiBusy(true);
     try {
-      const res = await fetch('/api/ai/schedule', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          examDate: aiExamDate,
-          subjects: aiSubjects || 'Studie',
-          material: aiMaterial,
-          dailyMinutes: aiDailyMinutes,
-          todayDate: todayStr,
-        }),
+      const data = await postAiJson<{
+        tasks?: Array<{
+          title: string;
+          subject: string;
+          date: string;
+          durationMinutes: number;
+          notes: string;
+        }>;
+      }>('/api/ai/schedule', {
+        examDate: aiExamDate,
+        subjects: aiSubjects || 'Studie',
+        material: aiMaterial,
+        dailyMinutes: aiDailyMinutes,
+        todayDate: todayStr,
       });
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || 'AI kon geen schema genereren.');
-      }
       if (!Array.isArray(data.tasks) || data.tasks.length === 0) {
         throw new Error('De AI gaf geen taken terug. Probeer je leerstof iets uitgebreider te omschrijven.');
       }

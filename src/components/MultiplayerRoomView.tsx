@@ -93,7 +93,8 @@ export const MultiplayerRoomView: React.FC<MultiplayerRoomViewProps> = ({
   }, [room?.pairs, room?.roomCode]);
 
   const handleCopyShareLink = async () => {
-    const url = `${window.location.origin}/join?code=${roomCode}`;
+    const base = window.location.href.split('#')[0].split('?')[0].replace(/\/join\/?$/, '/');
+    const url = `${base}?join=1&code=${roomCode}`;
     try {
       await navigator.clipboard.writeText(url);
       setCopied(true);

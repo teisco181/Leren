@@ -22,6 +22,7 @@ import {
 import { ConfirmModal } from './ConfirmModal';
 import { MultiplayerRoomView } from './MultiplayerRoomView';
 import { ListSkeleton } from './Skeletons';
+import { postAiJson } from '../lib/apiClient';
 
 interface GamesViewProps {
   userId: string;
@@ -150,19 +151,23 @@ export const GamesView: React.FC<GamesViewProps> = ({
 
     setGenerating(true);
     try {
-      const res = await fetch('/api/ai/game', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          title,
-          subject,
-          content,
-          count: questionCount,
-          sourceType: aiSourceType,
-        }),
+      const data = await postAiJson<{
+        setTitle?: string;
+        flashcards?: Array<{ front: string; back: string }>;
+        pairs?: Array<{ id: string; term: string; definition: string }>;
+        questions?: Array<{
+          question: string;
+          options: string[];
+          correctIndex: number;
+          explanation: string;
+        }>;
+      }>('/api/ai/game', {
+        title,
+        subject,
+        content,
+        count: questionCount,
+        sourceType: aiSourceType,
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Kon spelset niet genereren.');
 
       const id = await createStudySet(userId, {
         title: data.setTitle || title,

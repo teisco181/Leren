@@ -13,6 +13,7 @@ import { createSummary, deleteSummary } from '../lib/studyStore';
 import { MarkdownView } from './MarkdownView';
 import { ConfirmModal } from './ConfirmModal';
 import { ListSkeleton } from './Skeletons';
+import { postAiJson } from '../lib/apiClient';
 
 interface SummariesViewProps {
   userId: string;
@@ -96,18 +97,17 @@ export const SummariesView: React.FC<SummariesViewProps> = ({
     }
     setBusy(true);
     try {
-      const res = await fetch('/api/ai/summary', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          title: source.title,
-          subject: subject || source.subject || 'Algemeen',
-          content: source.content,
-          sourceType: source.type,
-        }),
+      const data = await postAiJson<{
+        summaryTitle?: string;
+        content?: string;
+        keyTerms?: Array<{ term: string; definition: string }>;
+        selfTest?: Array<{ question: string; answer: string }>;
+      }>('/api/ai/summary', {
+        title: source.title,
+        subject: subject || source.subject || 'Algemeen',
+        content: source.content,
+        sourceType: source.type,
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'AI kon geen samenvatting maken.');
 
       const id = await createSummary(userId, {
         title: data.summaryTitle || `Samenvatting: ${source.title}`,

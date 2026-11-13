@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { StudyItem } from '../types';
 import { MarkdownView } from './MarkdownView';
+import { postAiJson } from '../lib/apiClient';
 
 interface NotebookViewProps {
   items: StudyItem[];
@@ -55,21 +56,15 @@ export const NotebookView: React.FC<NotebookViewProps> = ({ items }) => {
     setLoading(true);
 
     try {
-      const res = await fetch('/api/ai/notebook', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          sources: activeSources.map((s) => ({
-            title: s.title,
-            subject: s.subject,
-            content: s.content,
-          })),
-          messages: messages,
-          prompt: trimmed,
-        }),
+      const data = await postAiJson<{ reply: string }>('/api/ai/notebook', {
+        sources: activeSources.map((s) => ({
+          title: s.title,
+          subject: s.subject,
+          content: s.content,
+        })),
+        messages: messages,
+        prompt: trimmed,
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Kon geen antwoord genereren.');
       setMessages([...nextMessages, { role: 'assistant', text: data.reply }]);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Fout bij het stellen van je vraag.');

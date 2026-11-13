@@ -99,14 +99,31 @@ const NAV_ITEMS: Array<{
   { id: 'notebook', label: 'Studie-Notebook', Icon: Sparkles },
 ];
 
-function StudyFlowRoot() {
-  // Public /join route detection
-  const [isJoinRoute, setIsJoinRoute] = useState<boolean>(() =>
-    window.location.pathname.startsWith('/join')
+function detectJoinRoute(): boolean {
+  const path = window.location.pathname;
+  const hash = window.location.hash;
+  const params = new URLSearchParams(window.location.search);
+  return (
+    path === '/join' ||
+    path.endsWith('/join') ||
+    path.endsWith('/join/') ||
+    hash.startsWith('#/join') ||
+    params.get('join') === '1' ||
+    Boolean(params.get('code'))
   );
+}
+
+function StudyFlowRoot() {
+  // Public /join route detection (works both at root and under GitHub Pages repo subpaths)
+  const [isJoinRoute, setIsJoinRoute] = useState<boolean>(() => detectJoinRoute());
   const [initialRoomCode] = useState<string>(() => {
     const params = new URLSearchParams(window.location.search);
-    return params.get('code') || '';
+    if (params.get('code')) return params.get('code') || '';
+    const hashQuery = window.location.hash.split('?')[1];
+    if (hashQuery) {
+      return new URLSearchParams(hashQuery).get('code') || '';
+    }
+    return '';
   });
   const [showJoinModal, setShowJoinModal] = useState(false);
 
@@ -150,20 +167,39 @@ function StudyFlowRoot() {
   const [user, setUser] = useState<User | null>(null);
 
   useEffect(() => {
-    const unsub = subscribeAuth((u) => {
-      setUser(u);
-      setAuthReady(true);
-      if (u && !u.isAnonymous) {
-        ensureUserProfile(u)
-          .then((profileTheme) => {
-            if (profileTheme === 'light' || profileTheme === 'dark' || profileTheme === 'system') {
-              setThemePreference(profileTheme);
-            }
-          })
-          .catch(() => {});
+    let settled = false;
+    const fallbackTimer = window.setTimeout(() => {
+      if (!settled) {
+        setAuthReady(true);
       }
-    });
-    return () => unsub();
+    }, 3500);
+
+    const unsub = subscribeAuth(
+      (u) => {
+        settled = true;
+        window.clearTimeout(fallbackTimer);
+        setUser(u);
+        setAuthReady(true);
+        if (u && !u.isAnonymous) {
+          ensureUserProfile(u)
+            .then((profileTheme) => {
+              if (profileTheme === 'light' || profileTheme === 'dark' || profileTheme === 'system') {
+                setThemePreference(profileTheme);
+              }
+            })
+            .catch(() => {});
+        }
+      },
+      () => {
+        settled = true;
+        window.clearTimeout(fallbackTimer);
+        setAuthReady(true);
+      }
+    );
+    return () => {
+      window.clearTimeout(fallbackTimer);
+      unsub();
+    };
   }, []);
 
   const handleChangeTheme = (nextTheme: ThemePreference) => {
@@ -173,13 +209,17 @@ function StudyFlowRoot() {
     }
   };
 
-  // Browser popstate for /join
+  // Browser popstate / hashchange for /join
   useEffect(() => {
-    const onPop = () => {
-      setIsJoinRoute(window.location.pathname.startsWith('/join'));
+    const onNavChange = () => {
+      setIsJoinRoute(detectJoinRoute());
     };
-    window.addEventListener('popstate', onPop);
-    return () => window.removeEventListener('popstate', onPop);
+    window.addEventListener('popstate', onNavChange);
+    window.addEventListener('hashchange', onNavChange);
+    return () => {
+      window.removeEventListener('popstate', onNavChange);
+      window.removeEventListener('hashchange', onNavChange);
+    };
   }, []);
 
   // App Section & Mobile Sidebar
@@ -259,7 +299,8 @@ function StudyFlowRoot() {
         initialRoomCode={initialRoomCode}
         isModal={false}
         onClose={() => {
-          window.history.pushState({}, '', '/');
+          const cleanPath = window.location.pathname.replace(/\/join\/?$/, '') || '/';
+          window.history.pushState({}, '', cleanPath);
           setIsJoinRoute(false);
         }}
       />

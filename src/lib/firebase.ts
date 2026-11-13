@@ -249,13 +249,24 @@ export async function logoutUser(): Promise<void> {
   await auth.signOut();
 }
 
-export function subscribeAuth(callback: (user: User | null) => void) {
-  return onAuthStateChanged(auth, (user) => {
-    if (!user) {
-      cachedDriveAccessToken = null;
+export function subscribeAuth(
+  callback: (user: User | null) => void,
+  onError?: (error: Error) => void
+) {
+  return onAuthStateChanged(
+    auth,
+    (user) => {
+      if (!user) {
+        cachedDriveAccessToken = null;
+      }
+      callback(user);
+    },
+    (err) => {
+      console.error('Firebase auth fout:', err);
+      if (onError) onError(err);
+      callback(null);
     }
-    callback(user);
-  });
+  );
 }
 
 export function formatAuthErrorDutch(err: unknown): string {
