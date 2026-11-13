@@ -82,7 +82,7 @@ service cloud.firestore {
         && isValidId(data.ownerId)
         && data.folderId is string && data.folderId.size() <= 128
         && data.title is string && data.title.size() >= 1 && data.title.size() <= 160
-        && data.type in ['note', 'pdf', 'gdoc', 'gsheet', 'gslide']
+        && data.type in ['note', 'pdf']
         && data.subject is string && data.subject.size() <= 80
         && data.content is string && data.content.size() <= 300000
         && data.fileDataUrl is string && data.fileDataUrl.size() <= 700000

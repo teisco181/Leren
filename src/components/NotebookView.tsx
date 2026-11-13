@@ -2,9 +2,7 @@ import React, { useState } from 'react';
 import {
   BookOpen,
   CheckSquare,
-  FileSpreadsheet,
   FileText,
-  Presentation,
   Send,
   Sparkles,
   Square,
@@ -46,7 +44,7 @@ export const NotebookView: React.FC<NotebookViewProps> = ({ items }) => {
     setError(null);
 
     if (activeSources.length === 0) {
-      setError('Vink links eerst minimaal één notitie, PDF of Google Doc aan als actieve bron.');
+      setError('Vink links eerst minimaal één notitie of PDF aan als actieve bron.');
       return;
     }
 
@@ -134,11 +132,11 @@ export const NotebookView: React.FC<NotebookViewProps> = ({ items }) => {
                         {item.title}
                       </p>
                       <p className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
-                        {item.type === 'note' && <FileText className="w-3 h-3 text-indigo-500" />}
-                        {item.type === 'pdf' && <Upload className="w-3 h-3 text-red-500" />}
-                        {item.type === 'gdoc' && <FileText className="w-3 h-3 text-blue-500" />}
-                        {item.type === 'gsheet' && <FileSpreadsheet className="w-3 h-3 text-emerald-500" />}
-                        {item.type === 'gslide' && <Presentation className="w-3 h-3 text-amber-500" />}
+                        {item.type === 'pdf' ? (
+                          <Upload className="w-3 h-3 text-red-500" />
+                        ) : (
+                          <FileText className="w-3 h-3 text-indigo-500" />
+                        )}
                         <span>{item.subject || 'Algemeen'}</span>
                       </p>
                     </div>

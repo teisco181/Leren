@@ -14,7 +14,7 @@ import {
   loginWithEmail,
   registerWithEmail,
   resetPasswordEmail,
-  signInWithGoogleWorkspace,
+  signInWithGoogle,
 } from '../lib/firebase';
 import { ThemePreference } from '../types';
 import { ThemeSelector } from './ThemeSelector';
@@ -45,7 +45,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
     setSuccessMsg(null);
     setLoading(true);
     try {
-      await signInWithGoogleWorkspace();
+      await signInWithGoogle();
     } catch (err) {
       setError(formatAuthErrorDutch(err));
     } finally {
@@ -120,8 +120,8 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                 Studeer effectiever met actieve herinnering en AI-ondersteuning.
               </h1>
               <p className="mt-4 text-base text-slate-600 dark:text-slate-400 leading-relaxed max-w-lg">
-                Organiseer al je notities, PDF&apos;s en Google Docs per vak, plan automatisch je
-                oefenschema en overhoor jezelf met AI-samenvattingen en realtime multiplayer-quizzen.
+                Organiseer al je notities en PDF&apos;s per vak, plan automatisch je oefenschema
+                en overhoor jezelf met AI-samenvattingen en realtime multiplayer-quizzen.
               </p>
 
               <div className="mt-8 space-y-4">
@@ -148,7 +148,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                       Studie-Notebook op basis van jouw eigen bronnen
                     </h3>
                     <p className="text-sm text-slate-600 dark:text-slate-400 mt-0.5">
-                      Vink notities, PDF&apos;s of Google Docs aan en krijg stapsgewijze uitleg zonder ruis.
+                      Vink notities of PDF&apos;s aan en krijg stapsgewijze uitleg zonder ruis.
                     </p>
                   </div>
                 </div>

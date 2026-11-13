@@ -1,4 +1,4 @@
-export type StudyItemType = 'note' | 'pdf' | 'gdoc' | 'gsheet' | 'gslide';
+export type StudyItemType = 'note' | 'pdf';
 
 export type ThemePreference = 'light' | 'dark' | 'system';
 

@@ -647,16 +647,7 @@ export const GamesView: React.FC<GamesViewProps> = ({
                     <option value="">Nog geen bestanden</option>
                   ) : (
                     items.map((it) => {
-                      const kindLabel =
-                        it.type === 'pdf'
-                          ? 'PDF'
-                          : it.type === 'gdoc'
-                            ? 'Google Doc'
-                            : it.type === 'gsheet'
-                              ? 'Google Sheet'
-                              : it.type === 'gslide'
-                                ? 'Google Slides'
-                                : 'Notitie';
+                      const kindLabel = it.type === 'pdf' ? 'PDF' : 'Notitie';
                       return (
                         <option key={it.id} value={it.id}>
                           {it.title} ({kindLabel} · {it.subject || 'Algemeen'})

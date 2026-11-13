@@ -92,7 +92,7 @@ export const SummariesView: React.FC<SummariesViewProps> = ({
     setError(null);
     const source = items.find((i) => i.id === selectedSourceId);
     if (!source) {
-      setError('Selecteer eerst een document, PDF of Google Doc uit je mappen.');
+      setError('Selecteer eerst een notitie of PDF uit je mappen.');
       return;
     }
     setBusy(true);
@@ -200,8 +200,8 @@ export const SummariesView: React.FC<SummariesViewProps> = ({
             Nog geen samenvattingen opgeslagen
           </p>
           <p className="text-sm text-slate-500 dark:text-slate-400 max-w-md mx-auto">
-            Kies een notitie, PDF, Google Doc, Spreadsheet of Presentatie uit je mappen en laat
-            StudyFlow een heldere samenvatting met zelftestvragen maken.
+            Kies een notitie of PDF uit je mappen en laat StudyFlow een heldere samenvatting met
+            zelftestvragen maken.
           </p>
         </div>
       ) : (
@@ -374,16 +374,7 @@ export const SummariesView: React.FC<SummariesViewProps> = ({
                       <option value="">Geen bestanden gevonden</option>
                     ) : (
                       items.map((item) => {
-                        const kindLabel =
-                          item.type === 'pdf'
-                            ? 'PDF'
-                            : item.type === 'gdoc'
-                              ? 'Google Doc'
-                              : item.type === 'gsheet'
-                                ? 'Google Sheet'
-                                : item.type === 'gslide'
-                                  ? 'Google Slides'
-                                  : 'Notitie';
+                        const kindLabel = item.type === 'pdf' ? 'PDF' : 'Notitie';
                         return (
                           <option key={item.id} value={item.id}>
                             {item.title} ({kindLabel} · {item.subject || 'Algemeen'})

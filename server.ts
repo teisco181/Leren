@@ -108,29 +108,20 @@ Pas principes van gespreide herhaling (spaced repetition), actieve herinnering (
   // 2. AI Samenvatting Generator
   app.post("/api/ai/summary", async (req, res) => {
     try {
-      const { title, subject, content, sourceType } = req.body as {
+      const { title, subject, content } = req.body as {
         title: string;
         subject: string;
         content: string;
-        sourceType?: string;
       };
 
       if (!content || !content.trim()) {
         return res.status(400).json({ error: "Broninhoud is leeg. Voeg eerst tekst toe aan het document." });
       }
 
-      const typeHint =
-        sourceType === "gslide"
-          ? "De bron is een Google Presentatie (dia's met sprekersnotities). Structureer de samenvatting per thema/onderwerp van de dia's en verwerk belangrijke voorbeelden uit de dia's."
-          : sourceType === "gsheet"
-            ? "De bron is een Google Spreadsheet (tabbladen en tabelrijen gescheiden door |). Zet de tabelgegevens en begrippen overzichtelijk om in een samenhangende samenvatting."
-            : "";
-
       const response = await ai.models.generateContent({
         model: MODEL_NAME,
         contents: `Titel van de bron: ${title || "Studiedocument"}
 Vak: ${subject || "Algemeen"}
-${typeHint}
 Brontekst:
 ${content.slice(0, 60000)}
 
@@ -182,12 +173,11 @@ Maak een heldere, gestructureerde Nederlandse samenvatting in Markdown (met duid
   // 3. AI Leerspelletjes Generator (Flashcards, Memory/Speed-Match, Quiz Battle)
   app.post("/api/ai/game", async (req, res) => {
     try {
-      const { title, subject, content, count, sourceType } = req.body as {
+      const { title, subject, content, count } = req.body as {
         title?: string;
         subject?: string;
         content: string;
         count?: number;
-        sourceType?: string;
       };
 
       if (!content || content.trim().length < 20) {
@@ -195,18 +185,11 @@ Maak een heldere, gestructureerde Nederlandse samenvatting in Markdown (met duid
       }
 
       const targetCount = Math.min(Math.max(Number(count) || 8, 4), 15);
-      const sourceHint =
-        sourceType === "gsheet"
-          ? "LET OP: De bron komt uit een Google Spreadsheet met tabellen/rijen (gescheiden door |). Gebruik de kolommen (bijv. woordjes, vertalingen, jaartallen of begrip-definitie paren) direct als basis voor nauwkeurige flashcards, memory-paren en quizvragen."
-          : sourceType === "gslide"
-            ? "LET OP: De bron komt uit een Google Presentatie (dia's + sprekersnotities). Zet de kernconcepten uit alle dia's om in concrete oefenvragen en flashcards."
-            : "";
 
       const response = await ai.models.generateContent({
         model: MODEL_NAME,
         contents: `Onderwerp: ${title || "Leerstof"} (${subject || "Algemeen"})
 Aantal items per speltype: ongeveer ${targetCount} flashcards, ${Math.min(targetCount, 8)} memory-paren en ${targetCount} meerkeuzevragen.
-${sourceHint}
 Leerstof:
 ${content.slice(0, 60000)}
 

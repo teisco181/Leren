@@ -197,7 +197,7 @@ export async function createStudyItem(
   input: {
     folderId?: string;
     title: string;
-    type: 'note' | 'pdf' | 'gdoc' | 'gsheet' | 'gslide';
+    type: 'note' | 'pdf';
     subject?: string;
     content?: string;
     fileDataUrl?: string;

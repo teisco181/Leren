@@ -3,7 +3,6 @@ import {
   getAuth,
   GoogleAuthProvider,
   signInWithPopup,
-  linkWithPopup,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   sendPasswordResetEmail,
@@ -28,30 +27,10 @@ const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 export const auth = getAuth(app);
 
-export const GOOGLE_WORKSPACE_SCOPES = [
-  'https://www.googleapis.com/auth/drive.file',
-  'https://www.googleapis.com/auth/drive.metadata.readonly',
-  'https://www.googleapis.com/auth/documents.readonly',
-  'https://www.googleapis.com/auth/spreadsheets.readonly',
-  'https://www.googleapis.com/auth/presentations.readonly',
-];
-
 function createGoogleProvider() {
   const provider = new GoogleAuthProvider();
-  GOOGLE_WORKSPACE_SCOPES.forEach((scope) => provider.addScope(scope));
   provider.setCustomParameters({ prompt: 'select_account' });
   return provider;
-}
-
-// In-memory cache ONLY for Google OAuth access token (never localStorage/sessionStorage)
-let cachedDriveAccessToken: string | null = null;
-
-export function getDriveAccessToken(): string | null {
-  return cachedDriveAccessToken;
-}
-
-export function clearDriveAccessToken(): void {
-  cachedDriveAccessToken = null;
 }
 
 export enum OperationType {
@@ -179,38 +158,11 @@ export async function updateUserThemePreference(
   }
 }
 
-export async function signInWithGoogleWorkspace(): Promise<{
-  user: User;
-  accessToken: string | null;
-}> {
+export async function signInWithGoogle(): Promise<User> {
   const provider = createGoogleProvider();
   const result = await signInWithPopup(auth, provider);
-  const credential = GoogleAuthProvider.credentialFromResult(result);
-  if (credential?.accessToken) {
-    cachedDriveAccessToken = credential.accessToken;
-  }
   await ensureUserProfile(result.user);
-  return { user: result.user, accessToken: cachedDriveAccessToken };
-}
-
-export async function connectGoogleDriveToken(): Promise<string> {
-  const provider = createGoogleProvider();
-  const current = auth.currentUser;
-  let result;
-  if (current && !current.isAnonymous) {
-    const hasGoogle = current.providerData.some((p) => p.providerId === 'google.com');
-    result = hasGoogle
-      ? await signInWithPopup(auth, provider)
-      : await linkWithPopup(current, provider);
-  } else {
-    result = await signInWithPopup(auth, provider);
-  }
-  const credential = GoogleAuthProvider.credentialFromResult(result);
-  if (!credential?.accessToken) {
-    throw new Error('Kon geen toegangstoken van Google Drive ophalen.');
-  }
-  cachedDriveAccessToken = credential.accessToken;
-  return credential.accessToken;
+  return result.user;
 }
 
 export async function loginWithEmail(email: string, password: string): Promise<User> {
@@ -245,7 +197,6 @@ export async function signInGuestAnonymously(): Promise<User> {
 }
 
 export async function logoutUser(): Promise<void> {
-  cachedDriveAccessToken = null;
   await auth.signOut();
 }
 
@@ -256,9 +207,6 @@ export function subscribeAuth(
   return onAuthStateChanged(
     auth,
     (user) => {
-      if (!user) {
-        cachedDriveAccessToken = null;
-      }
       callback(user);
     },
     (err) => {

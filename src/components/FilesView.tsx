@@ -6,18 +6,14 @@ import {
   ChevronRight,
   Code,
   Edit3,
-  ExternalLink,
   Eye,
-  FileSpreadsheet,
   FileText,
   Folder as FolderIcon,
   FolderPlus,
-  HardDrive,
   Heading2,
   Italic,
   List,
   Plus,
-  Presentation,
   Search,
   Trash2,
   Upload,
@@ -34,7 +30,6 @@ import {
 } from '../lib/studyStore';
 import { extractPdfContent } from '../lib/pdfUtils';
 import { cachePdfLocally, getCachedPdfLocally } from '../lib/localPdfCache';
-import { getGoogleEmbedUrl, openGoogleDrivePicker } from '../lib/googleDrive';
 import { ConfirmModal } from './ConfirmModal';
 import { MarkdownView } from './MarkdownView';
 import { ListSkeleton } from './Skeletons';
@@ -85,10 +80,9 @@ export const FilesView: React.FC<FilesViewProps> = ({
   const [pdfTab, setPdfTab] = useState<'viewer' | 'text'>('viewer');
   const [localPdfUrl, setLocalPdfUrl] = useState<string | null>(null);
 
-  // Import/Upload status & errors
+  // Upload status & errors
   const [actionError, setActionError] = useState<string | null>(null);
   const [uploadingPdf, setUploadingPdf] = useState(false);
-  const [importingDrive, setImportingDrive] = useState(false);
 
   // Delete confirmation
   const [confirmDelete, setConfirmDelete] = useState<
@@ -287,43 +281,6 @@ export const FilesView: React.FC<FilesViewProps> = ({
     }
   };
 
-  const handleGoogleDriveImport = async () => {
-    setImportingDrive(true);
-    setActionError(null);
-    try {
-      const picked = await openGoogleDrivePicker();
-      if (!picked) {
-        setImportingDrive(false);
-        return;
-      }
-      const defaultSubject =
-        picked.itemType === 'gsheet'
-          ? 'Google Sheets'
-          : picked.itemType === 'gslide'
-            ? 'Google Slides'
-            : 'Google Docs';
-      const id = await createStudyItem(userId, {
-        folderId: currentFolderId,
-        title: picked.name,
-        type: picked.itemType,
-        subject: currentFolder?.subject || defaultSubject,
-        content: picked.content,
-        driveFileId: picked.id,
-        driveUrl: picked.url,
-        mimeType: picked.mimeType,
-      });
-      setSelectedItemId(id);
-    } catch (err) {
-      setActionError(
-        err instanceof Error
-          ? err.message
-          : 'Kon Google Drive-kiezer niet openen. Zorg dat pop-ups zijn toegestaan.'
-      );
-    } finally {
-      setImportingDrive(false);
-    }
-  };
-
   const insertMarkdownSnippet = (before: string, after = '') => {
     const el = textareaRef.current;
     if (!el) return;
@@ -339,13 +296,7 @@ export const FilesView: React.FC<FilesViewProps> = ({
     }, 0);
   };
 
-  const typeLabel = (t: StudyItem['type']) => {
-    if (t === 'note') return 'Notitie';
-    if (t === 'pdf') return 'PDF';
-    if (t === 'gsheet') return 'Google Sheet';
-    if (t === 'gslide') return 'Google Slides';
-    return 'Google Doc';
-  };
+  const typeLabel = (t: StudyItem['type']) => (t === 'pdf' ? 'PDF' : 'Notitie');
 
   if (loading) {
     return <ListSkeleton rows={6} />;
@@ -360,7 +311,7 @@ export const FilesView: React.FC<FilesViewProps> = ({
             Mappen &amp; Bestanden
           </h1>
           <p className="text-sm text-slate-600 dark:text-slate-400 mt-0.5">
-            Beheer je vakmappen, notities, PDF&apos;s en Google Docs, Sheets &amp; Presentaties op één plek.
+            Beheer je vakmappen, notities en PDF-bestanden overzichtelijk op één plek.
           </p>
         </div>
 
@@ -405,16 +356,6 @@ export const FilesView: React.FC<FilesViewProps> = ({
             onChange={handlePdfUpload}
             className="hidden"
           />
-
-          <button
-            type="button"
-            disabled={importingDrive}
-            onClick={handleGoogleDriveImport}
-            className="px-3.5 py-2 rounded-lg text-sm font-medium bg-white dark:bg-[#111827] border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-2 whitespace-nowrap shrink-0 disabled:opacity-60"
-          >
-            <HardDrive className="w-4 h-4 text-sky-600 dark:text-sky-400" />
-            <span>{importingDrive ? 'Drive openen...' : 'Google Drive'}</span>
-          </button>
         </div>
       </div>
 
@@ -574,7 +515,7 @@ export const FilesView: React.FC<FilesViewProps> = ({
                     : 'Deze map bevat nog geen bestanden.'}
                 </p>
                 <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Maak een notitie aan, upload een PDF of importeer een bestand uit Google Drive.
+                  Maak een notitie aan of upload een PDF-bestand.
                 </p>
               </div>
             ) : (
@@ -596,11 +537,11 @@ export const FilesView: React.FC<FilesViewProps> = ({
                         className="flex items-center gap-3 min-w-0 flex-1 text-left"
                       >
                         <div className="p-2 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 shrink-0">
-                          {item.type === 'note' && <FileText className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />}
-                          {item.type === 'pdf' && <Upload className="w-4 h-4 text-red-600 dark:text-red-400" />}
-                          {item.type === 'gdoc' && <FileText className="w-4 h-4 text-blue-600 dark:text-blue-400" />}
-                          {item.type === 'gsheet' && <FileSpreadsheet className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />}
-                          {item.type === 'gslide' && <Presentation className="w-4 h-4 text-amber-600 dark:text-amber-400" />}
+                          {item.type === 'pdf' ? (
+                            <Upload className="w-4 h-4 text-red-600 dark:text-red-400" />
+                          ) : (
+                            <FileText className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+                          )}
                         </div>
                         <div className="min-w-0">
                           <p className="text-sm font-medium text-slate-900 dark:text-slate-100 truncate">
@@ -831,67 +772,6 @@ export const FilesView: React.FC<FilesViewProps> = ({
                     {selectedItem.content}
                   </pre>
                 )}
-              </div>
-            )}
-
-            {/* GOOGLE WORKSPACE (DOCS / SHEETS / SLIDES) VIEWER */}
-            {(selectedItem.type === 'gdoc' ||
-              selectedItem.type === 'gsheet' ||
-              selectedItem.type === 'gslide') && (
-              <div className="p-4 sm:p-5 space-y-4">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
-                    {selectedItem.type === 'gsheet' ? (
-                      <FileSpreadsheet className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                    ) : selectedItem.type === 'gslide' ? (
-                      <Presentation className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
-                    ) : (
-                      <FileText className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0" />
-                    )}
-                    <span>Gekoppeld vanuit {typeLabel(selectedItem.type)}</span>
-                  </div>
-                  {selectedItem.driveUrl && (
-                    <a
-                      href={selectedItem.driveUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-medium inline-flex items-center gap-1.5 whitespace-nowrap"
-                    >
-                      <span>
-                        {selectedItem.type === 'gsheet'
-                          ? 'Openen in Google Sheets'
-                          : selectedItem.type === 'gslide'
-                            ? 'Openen in Google Presentaties'
-                            : 'Openen in Google Docs'}
-                      </span>
-                      <ExternalLink className="w-3.5 h-3.5" />
-                    </a>
-                  )}
-                </div>
-
-                <iframe
-                  title={selectedItem.title}
-                  src={getGoogleEmbedUrl(
-                    selectedItem.driveFileId,
-                    selectedItem.mimeType,
-                    selectedItem.driveUrl
-                  )}
-                  allowFullScreen
-                  className="w-full h-[380px] rounded-xl border border-slate-200 dark:border-slate-800 bg-white"
-                />
-
-                <div className="space-y-1.5">
-                  <p className="text-xs font-medium text-slate-700 dark:text-slate-300">
-                    {selectedItem.type === 'gsheet'
-                      ? 'Geëxtraheerde tabelgegevens voor StudyFlow AI'
-                      : selectedItem.type === 'gslide'
-                        ? 'Geëxtraheerde dia-tekst voor StudyFlow AI'
-                        : 'Geëxtraheerde tekst voor StudyFlow AI'}
-                  </p>
-                  <pre className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs leading-relaxed whitespace-pre-wrap max-h-48 overflow-y-auto text-slate-700 dark:text-slate-300">
-                    {selectedItem.content}
-                  </pre>
-                </div>
               </div>
             )}
           </div>

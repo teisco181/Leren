@@ -441,7 +441,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             Mappen &amp; Bestanden
           </h3>
           <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-            Open notities, PDF&apos;s of importeer direct vanuit Google Drive.
+            Open je vakmappen, maak notities of upload PDF-bestanden.
           </p>
         </button>
 

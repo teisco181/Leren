@@ -32,13 +32,13 @@
     },
     "StudyItem": {
       "title": "StudyItem",
-      "description": "Studiebestand in een map: tekstdocument, geüploade PDF, Google Doc, Google Sheet of Google Presentatie.",
+      "description": "Studiebestand in een map: tekstdocument of geüploade PDF.",
       "type": "object",
       "properties": {
         "ownerId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
         "folderId": { "type": "string", "maxLength": 128 },
         "title": { "type": "string", "minLength": 1, "maxLength": 160 },
-        "type": { "type": "string", "enum": ["note", "pdf", "gdoc", "gsheet", "gslide"] },
+        "type": { "type": "string", "enum": ["note", "pdf"] },
         "subject": { "type": "string", "maxLength": 80 },
         "content": { "type": "string", "maxLength": 300000 },
         "fileDataUrl": { "type": "string", "maxLength": 700000 },
@@ -244,7 +244,7 @@
     },
     "/users/{userId}/items/{itemId}": {
       "schema": { "$ref": "#/entities/StudyItem" },
-      "description": "Notities, PDF-bestanden, Google Docs, Google Sheets en Google Presentaties."
+      "description": "Notities en geüploade PDF-bestanden."
     },
     "/users/{userId}/scheduleTasks/{taskId}": {
       "schema": { "$ref": "#/entities/ScheduleTask" },
