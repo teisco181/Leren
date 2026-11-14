@@ -28,7 +28,7 @@ import {
   updateFolder,
   updateStudyItem,
 } from '../lib/studyStore';
-import { extractPdfContent } from '../lib/pdfUtils';
+import { extractStudyDocument } from '../lib/docParser';
 import { cachePdfLocally, getCachedPdfLocally } from '../lib/localPdfCache';
 import { ConfirmModal } from './ConfirmModal';
 import { MarkdownView } from './MarkdownView';
@@ -249,32 +249,35 @@ export const FilesView: React.FC<FilesViewProps> = ({
     }
   };
 
-  const handlePdfUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     e.target.value = '';
     setUploadingPdf(true);
     setActionError(null);
     try {
-      const extracted = await extractPdfContent(file);
+      const extracted = await extractStudyDocument(file);
       const id = await createStudyItem(userId, {
         folderId: currentFolderId,
-        title: file.name.replace(/\.pdf$/i, ''),
-        type: 'pdf',
+        title: extracted.title,
+        type: extracted.type,
         subject: currentFolder?.subject || 'Algemeen',
         content: extracted.text,
         fileDataUrl: extracted.dataUrl,
         fileName: file.name,
         fileSize: file.size,
-        mimeType: 'application/pdf',
+        mimeType: extracted.mimeType,
       });
-      if (extracted.dataUrl) {
+      if (extracted.type === 'pdf' && extracted.dataUrl) {
         await cachePdfLocally(id, extracted.dataUrl);
+      }
+      if (extracted.warning) {
+        setActionError(extracted.warning);
       }
       setSelectedItemId(id);
     } catch (err) {
       setActionError(
-        err instanceof Error ? err.message : 'Kon PDF-bestand niet verwerken.'
+        err instanceof Error ? err.message : 'Kon dit bestand niet verwerken.'
       );
     } finally {
       setUploadingPdf(false);
@@ -296,7 +299,13 @@ export const FilesView: React.FC<FilesViewProps> = ({
     }, 0);
   };
 
-  const typeLabel = (t: StudyItem['type']) => (t === 'pdf' ? 'PDF' : 'Notitie');
+  const typeLabel = (t: StudyItem['type']) => {
+    if (t === 'pdf') return 'PDF';
+    if (t === 'docx') return 'Word (DOCX)';
+    if (t === 'pptx') return 'PowerPoint (PPTX)';
+    if (t === 'txt') return 'Tekstbestand';
+    return 'Notitie';
+  };
 
   if (loading) {
     return <ListSkeleton rows={6} />;
@@ -347,13 +356,13 @@ export const FilesView: React.FC<FilesViewProps> = ({
             className="px-3.5 py-2 rounded-lg text-sm font-medium bg-white dark:bg-[#111827] border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-2 whitespace-nowrap shrink-0 disabled:opacity-60"
           >
             <Upload className="w-4 h-4" />
-            <span>{uploadingPdf ? 'PDF lezen...' : 'PDF uploaden'}</span>
+            <span>{uploadingPdf ? 'Bestand lezen...' : 'Bestand uploaden'}</span>
           </button>
           <input
             ref={fileInputRef}
             type="file"
-            accept="application/pdf,.pdf"
-            onChange={handlePdfUpload}
+            accept=".pdf,.docx,.pptx,.txt,.md,.csv,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.presentationml.presentation,text/plain"
+            onChange={handleFileUpload}
             className="hidden"
           />
         </div>
@@ -515,7 +524,7 @@ export const FilesView: React.FC<FilesViewProps> = ({
                     : 'Deze map bevat nog geen bestanden.'}
                 </p>
                 <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Maak een notitie aan of upload een PDF-bestand.
+                  Maak een notitie aan of upload een PDF, Word (.docx), PowerPoint (.pptx) of TXT-bestand.
                 </p>
               </div>
             ) : (
@@ -539,6 +548,8 @@ export const FilesView: React.FC<FilesViewProps> = ({
                         <div className="p-2 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 shrink-0">
                           {item.type === 'pdf' ? (
                             <Upload className="w-4 h-4 text-red-600 dark:text-red-400" />
+                          ) : item.type === 'docx' || item.type === 'pptx' ? (
+                            <FileText className="w-4 h-4 text-sky-600 dark:text-sky-400" />
                           ) : (
                             <FileText className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
                           )}
@@ -721,32 +732,34 @@ export const FilesView: React.FC<FilesViewProps> = ({
               </div>
             )}
 
-            {/* PDF VIEWER */}
-            {selectedItem.type === 'pdf' && (
+            {/* UPLOADED DOCUMENT VIEWER (PDF / DOCX / PPTX / TXT) */}
+            {selectedItem.type !== 'note' && (
               <div className="p-4 sm:p-5 space-y-4">
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-1 p-1 rounded-lg bg-slate-100 dark:bg-slate-900">
-                    <button
-                      type="button"
-                      onClick={() => setPdfTab('viewer')}
-                      className={`px-3 py-1 rounded-md text-xs font-medium ${
-                        pdfTab === 'viewer'
-                          ? 'bg-white dark:bg-[#161D2B] text-slate-900 dark:text-slate-100 shadow-xs'
-                          : 'text-slate-600 dark:text-slate-400'
-                      }`}
-                    >
-                      PDF-weergave
-                    </button>
+                    {selectedItem.type === 'pdf' && (
+                      <button
+                        type="button"
+                        onClick={() => setPdfTab('viewer')}
+                        className={`px-3 py-1 rounded-md text-xs font-medium ${
+                          pdfTab === 'viewer'
+                            ? 'bg-white dark:bg-[#161D2B] text-slate-900 dark:text-slate-100 shadow-xs'
+                            : 'text-slate-600 dark:text-slate-400'
+                        }`}
+                      >
+                        PDF-weergave
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={() => setPdfTab('text')}
                       className={`px-3 py-1 rounded-md text-xs font-medium ${
-                        pdfTab === 'text'
+                        selectedItem.type !== 'pdf' || pdfTab === 'text'
                           ? 'bg-white dark:bg-[#161D2B] text-slate-900 dark:text-slate-100 shadow-xs'
                           : 'text-slate-600 dark:text-slate-400'
                       }`}
                     >
-                      Geëxtraheerde AI-tekst
+                      Geëxtraheerde leerstof ({typeLabel(selectedItem.type)})
                     </button>
                   </div>
                   <span className="text-xs text-slate-500 dark:text-slate-400 tabular-nums">
@@ -754,7 +767,7 @@ export const FilesView: React.FC<FilesViewProps> = ({
                   </span>
                 </div>
 
-                {pdfTab === 'viewer' ? (
+                {selectedItem.type === 'pdf' && pdfTab === 'viewer' ? (
                   localPdfUrl ? (
                     <iframe
                       title={selectedItem.title}
@@ -764,12 +777,12 @@ export const FilesView: React.FC<FilesViewProps> = ({
                   ) : (
                     <div className="p-8 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-center text-sm text-slate-600 dark:text-slate-400">
                       Dit PDF-bestand is groter dan 650 KB en wordt op dit apparaat alleen als
-                      geëxtraheerde tekst getoond. Gebruik het tabblad &ldquo;Geëxtraheerde AI-tekst&rdquo;.
+                      geëxtraheerde tekst getoond. Gebruik het tabblad &ldquo;Geëxtraheerde leerstof&rdquo;.
                     </div>
                   )
                 ) : (
                   <pre className="p-4 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs leading-relaxed whitespace-pre-wrap max-h-[480px] overflow-y-auto text-slate-700 dark:text-slate-300">
-                    {selectedItem.content}
+                    {selectedItem.content || 'Geen leesbare tekst gevonden in dit bestand.'}
                   </pre>
                 )}
               </div>

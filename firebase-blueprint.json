@@ -32,13 +32,13 @@
     },
     "StudyItem": {
       "title": "StudyItem",
-      "description": "Studiebestand in een map: tekstdocument of geüploade PDF.",
+      "description": "Studiebestand in een map: tekstdocument, PDF, DOCX, PPTX of TXT.",
       "type": "object",
       "properties": {
         "ownerId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
         "folderId": { "type": "string", "maxLength": 128 },
         "title": { "type": "string", "minLength": 1, "maxLength": 160 },
-        "type": { "type": "string", "enum": ["note", "pdf"] },
+        "type": { "type": "string", "enum": ["note", "pdf", "docx", "pptx", "txt"] },
         "subject": { "type": "string", "maxLength": 80 },
         "content": { "type": "string", "maxLength": 300000 },
         "fileDataUrl": { "type": "string", "maxLength": 700000 },
@@ -127,7 +127,7 @@
     },
     "StudySet": {
       "title": "StudySet",
-      "description": "Speelbare leerset met flashcards, memory-paren en meerkeuzevragen.",
+      "description": "Speelbare leerset met flashcards, memory-paren, bronverwijzingen en meerkeuzevragen.",
       "type": "object",
       "properties": {
         "ownerId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
@@ -137,6 +137,11 @@
         "flashcards": { "type": "array" },
         "pairs": { "type": "array" },
         "questions": { "type": "array" },
+        "selectedFolderIds": { "type": "array" },
+        "selectedItemIds": { "type": "array" },
+        "topics": { "type": "array" },
+        "sortRounds": { "type": "array" },
+        "puzzles": { "type": "array" },
         "createdAt": { "type": "string", "format": "date-time" },
         "updatedAt": { "type": "string", "format": "date-time" }
       },
@@ -148,6 +153,37 @@
         "flashcards",
         "pairs",
         "questions",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "SoloGameSession": {
+      "title": "SoloGameSession",
+      "description": "Opgeslagen singleplayer spelsessie gekoppeld aan de gekozen leerstof.",
+      "type": "object",
+      "properties": {
+        "ownerId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "gameId": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "gameTitle": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "difficulty": { "type": "string", "enum": ["easy", "normal", "hard"] },
+        "material": { "type": "string", "maxLength": 350000 },
+        "progress": { "type": "string", "maxLength": 150000 },
+        "score": { "type": "integer" },
+        "completed": { "type": "boolean" },
+        "updatedAtMs": { "type": "integer" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "ownerId",
+        "gameId",
+        "gameTitle",
+        "difficulty",
+        "material",
+        "progress",
+        "score",
+        "completed",
+        "updatedAtMs",
         "createdAt",
         "updatedAt"
       ]
@@ -244,7 +280,7 @@
     },
     "/users/{userId}/items/{itemId}": {
       "schema": { "$ref": "#/entities/StudyItem" },
-      "description": "Notities en geüploade PDF-bestanden."
+      "description": "Notities en geüploade leerbestanden (PDF, DOCX, PPTX, TXT)."
     },
     "/users/{userId}/scheduleTasks/{taskId}": {
       "schema": { "$ref": "#/entities/ScheduleTask" },
@@ -257,6 +293,10 @@
     "/users/{userId}/studySets/{setId}": {
       "schema": { "$ref": "#/entities/StudySet" },
       "description": "AI-gegenereerde flashcards, memory-paren en quizsets."
+    },
+    "/users/{userId}/soloGameSessions/{sessionId}": {
+      "schema": { "$ref": "#/entities/SoloGameSession" },
+      "description": "Persoonlijke opgeslagen singleplayer-spelsessies met vaste leerstofselectie."
     },
     "/users/{userId}/externalTools/{toolId}": {
       "schema": { "$ref": "#/entities/ExternalTool" },

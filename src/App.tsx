@@ -2,6 +2,7 @@ import React, { Component, useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import {
   BookOpen,
+  BrainCircuit,
   Calendar,
   ExternalLink,
   FolderOpen,
@@ -17,6 +18,7 @@ import {
   ExternalTool,
   Folder,
   ScheduleTask,
+  SoloGameSession,
   StudyItem,
   StudySet,
   Summary,
@@ -34,15 +36,18 @@ import {
   subscribeFolders,
   subscribeItems,
   subscribeScheduleTasks,
+  subscribeSoloGameSessions,
   subscribeStudySets,
   subscribeSummaries,
 } from './lib/studyStore';
 import { AuthScreen } from './components/AuthScreen';
 import { JoinMultiplayerView } from './components/JoinMultiplayerView';
+import { MultiplayerGameTab } from './components/multiplayer/MultiplayerGameTab';
 import { DashboardView } from './components/DashboardView';
 import { FilesView } from './components/FilesView';
 import { SummariesView } from './components/SummariesView';
 import { GamesView } from './components/GamesView';
+import { PracticeView } from './components/PracticeView';
 import { ToolsHubView } from './components/ToolsHubView';
 import { NotebookView } from './components/NotebookView';
 import { ThemeSelector } from './components/ThemeSelector';
@@ -95,6 +100,7 @@ const NAV_ITEMS: Array<{
   { id: 'files', label: 'Mappen & Bestanden', Icon: FolderOpen },
   { id: 'summaries', label: 'Samenvattingen', Icon: BookOpen },
   { id: 'games', label: 'Spelletjes', Icon: Gamepad2 },
+  { id: 'practice', label: 'Oefen vragen', Icon: BrainCircuit },
   { id: 'tools', label: 'Leertools Hub', Icon: ExternalLink },
   { id: 'notebook', label: 'Studie-Notebook', Icon: Sparkles },
 ];
@@ -113,7 +119,16 @@ function detectJoinRoute(): boolean {
   );
 }
 
+function detectMpRoomCode(): string {
+  const params = new URLSearchParams(window.location.search);
+  const code = (params.get('mpRoom') || '').replace(/\D/g, '').slice(0, 6);
+  return code.length === 6 ? code : '';
+}
+
 function StudyFlowRoot() {
+  // Standalone multiplayer game tab (?mpRoom=123456)
+  const [mpRoomCode] = useState<string>(() => detectMpRoomCode());
+
   // Public /join route detection (works both at root and under GitHub Pages repo subpaths)
   const [isJoinRoute, setIsJoinRoute] = useState<boolean>(() => detectJoinRoute());
   const [initialRoomCode] = useState<string>(() => {
@@ -232,17 +247,19 @@ function StudyFlowRoot() {
   const [tasks, setTasks] = useState<ScheduleTask[]>([]);
   const [summaries, setSummaries] = useState<Summary[]>([]);
   const [studySets, setStudySets] = useState<StudySet[]>([]);
+  const [soloSessions, setSoloSessions] = useState<SoloGameSession[]>([]);
   const [externalTools, setExternalTools] = useState<ExternalTool[]>([]);
   const [dataLoading, setDataLoading] = useState(true);
   const seededToolsForRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!authReady || !user || user.isAnonymous) {
+    if (!authReady || !user || user.isAnonymous || mpRoomCode) {
       setFolders([]);
       setItems([]);
       setTasks([]);
       setSummaries([]);
       setStudySets([]);
+      setSoloSessions([]);
       setExternalTools([]);
       setDataLoading(false);
       return;
@@ -250,7 +267,7 @@ function StudyFlowRoot() {
 
     setDataLoading(true);
     const uid = user.uid;
-    let firstLoadPending = 6;
+    let firstLoadPending = 7;
     const markDone = () => {
       firstLoadPending -= 1;
       if (firstLoadPending <= 0) setDataLoading(false);
@@ -277,6 +294,10 @@ function StudyFlowRoot() {
         setStudySets(d);
         markDone();
       }),
+      subscribeSoloGameSessions(uid, (d) => {
+        setSoloSessions(d);
+        markDone();
+      }),
       subscribeExternalTools(uid, (d) => {
         setExternalTools(d);
         markDone();
@@ -290,7 +311,18 @@ function StudyFlowRoot() {
     return () => {
       unsubs.forEach((u) => u());
     };
-  }, [authReady, user]);
+  }, [authReady, user, mpRoomCode]);
+
+  // Dedicated standalone multiplayer game tab (?mpRoom=XXXXXX)
+  if (mpRoomCode) {
+    return (
+      <MultiplayerGameTab
+        roomCode={mpRoomCode}
+        themePreference={themePreference}
+        onChangeTheme={handleChangeTheme}
+      />
+    );
+  }
 
   // Public /join route accessible without login
   if (isJoinRoute) {
@@ -525,8 +557,18 @@ function StudyFlowRoot() {
                   folders={folders}
                   items={items}
                   studySets={studySets}
+                  soloSessions={soloSessions}
                   loading={dataLoading}
                   onOpenJoinModal={() => setShowJoinModal(true)}
+                />
+              )}
+              {section === 'practice' && (
+                <PracticeView
+                  userId={user.uid}
+                  userName={displayName}
+                  folders={folders}
+                  items={items}
+                  loading={dataLoading}
                 />
               )}
               {section === 'tools' && (

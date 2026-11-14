@@ -16,9 +16,11 @@ import { db, handleFirestoreError, OperationType } from './firebase';
 import {
   Folder,
   StudyItem,
+  StudyItemType,
   ScheduleTask,
   Summary,
   StudySet,
+  SoloGameSession,
   ExternalTool,
   GameRoom,
   GamePlayer,
@@ -124,6 +126,23 @@ export function subscribeStudySets(
   );
 }
 
+export function subscribeSoloGameSessions(
+  userId: string,
+  onData: (sessions: SoloGameSession[]) => void
+): Unsubscribe {
+  const path = `users/${userId}/soloGameSessions`;
+  const q = query(collection(db, path), where('ownerId', '==', userId));
+  return onSnapshot(
+    q,
+    (snap) => {
+      const list = snap.docs.map((d) => ({ id: d.id, ...d.data() } as SoloGameSession));
+      list.sort((a, b) => (b.updatedAtMs || 0) - (a.updatedAtMs || 0));
+      onData(list);
+    },
+    (err) => handleFirestoreError(err, OperationType.LIST, path)
+  );
+}
+
 export function subscribeExternalTools(
   userId: string,
   onData: (tools: ExternalTool[]) => void
@@ -197,7 +216,7 @@ export async function createStudyItem(
   input: {
     folderId?: string;
     title: string;
-    type: 'note' | 'pdf';
+    type: StudyItemType;
     subject?: string;
     content?: string;
     fileDataUrl?: string;
@@ -449,15 +468,65 @@ export async function createStudySet(
 ): Promise<string> {
   const id = makeId('set');
   const path = `users/${userId}/studySets/${id}`;
+  const payload: Record<string, unknown> = {
+    ownerId: userId,
+    title: input.title.trim().slice(0, 160),
+    subject: (input.subject || 'Algemeen').trim().slice(0, 80),
+    sourceTitle: (input.sourceTitle || '').slice(0, 160),
+    flashcards: (input.flashcards || []).slice(0, 40),
+    pairs: (input.pairs || []).slice(0, 30),
+    questions: (input.questions || []).slice(0, 30),
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  };
+  if (input.selectedFolderIds) payload.selectedFolderIds = input.selectedFolderIds.slice(0, 50);
+  if (input.selectedItemIds) payload.selectedItemIds = input.selectedItemIds.slice(0, 100);
+  if (input.topics) payload.topics = input.topics.slice(0, 40);
+  if (input.sortRounds) payload.sortRounds = input.sortRounds.slice(0, 10);
+  if (input.puzzles) payload.puzzles = input.puzzles.slice(0, 20);
+  try {
+    await setDoc(doc(db, path), payload);
+    return id;
+  } catch (err) {
+    handleFirestoreError(err, OperationType.CREATE, path);
+  }
+}
+
+export async function deleteStudySet(userId: string, setId: string): Promise<void> {
+  const path = `users/${userId}/studySets/${setId}`;
+  try {
+    await deleteDoc(doc(db, path));
+  } catch (err) {
+    handleFirestoreError(err, OperationType.DELETE, path);
+  }
+}
+
+// --- Saved Singleplayer Game Sessions ---
+export async function createSoloGameSession(
+  userId: string,
+  input: {
+    gameId: string;
+    gameTitle: string;
+    difficulty: 'easy' | 'normal' | 'hard';
+    material: string;
+    progress: string;
+    score: number;
+    completed: boolean;
+  }
+): Promise<string> {
+  const id = makeId('solo');
+  const path = `users/${userId}/soloGameSessions/${id}`;
   try {
     await setDoc(doc(db, path), {
       ownerId: userId,
-      title: input.title.trim().slice(0, 160),
-      subject: (input.subject || 'Algemeen').trim().slice(0, 80),
-      sourceTitle: (input.sourceTitle || '').slice(0, 160),
-      flashcards: (input.flashcards || []).slice(0, 40),
-      pairs: (input.pairs || []).slice(0, 30),
-      questions: (input.questions || []).slice(0, 30),
+      gameId: input.gameId.slice(0, 64),
+      gameTitle: input.gameTitle.slice(0, 160),
+      difficulty: input.difficulty,
+      material: input.material.slice(0, 340000),
+      progress: input.progress.slice(0, 140000),
+      score: Math.max(0, Math.round(input.score || 0)),
+      completed: Boolean(input.completed),
+      updatedAtMs: Date.now(),
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     });
@@ -467,8 +536,34 @@ export async function createStudySet(
   }
 }
 
-export async function deleteStudySet(userId: string, setId: string): Promise<void> {
-  const path = `users/${userId}/studySets/${setId}`;
+export async function updateSoloGameSession(
+  userId: string,
+  sessionId: string,
+  updates: {
+    difficulty?: 'easy' | 'normal' | 'hard';
+    progress: string;
+    score: number;
+    completed: boolean;
+  }
+): Promise<void> {
+  const path = `users/${userId}/soloGameSessions/${sessionId}`;
+  const clean: Record<string, unknown> = {
+    progress: updates.progress.slice(0, 140000),
+    score: Math.max(0, Math.round(updates.score || 0)),
+    completed: Boolean(updates.completed),
+    updatedAtMs: Date.now(),
+    updatedAt: serverTimestamp(),
+  };
+  if (updates.difficulty) clean.difficulty = updates.difficulty;
+  try {
+    await updateDoc(doc(db, path), clean);
+  } catch (err) {
+    handleFirestoreError(err, OperationType.UPDATE, path);
+  }
+}
+
+export async function deleteSoloGameSession(userId: string, sessionId: string): Promise<void> {
+  const path = `users/${userId}/soloGameSessions/${sessionId}`;
   try {
     await deleteDoc(doc(db, path));
   } catch (err) {

@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
 import { ArrowLeft, Gamepad2, Hash, User } from 'lucide-react';
-import { formatAuthErrorDutch, signInGuestAnonymously } from '../lib/firebase';
+import { auth, formatAuthErrorDutch, signInGuestAnonymously } from '../lib/firebase';
+import { apiPost } from '../lib/apiClient';
 import { joinMultiplayerRoom } from '../lib/studyStore';
 import { MultiplayerRoomView } from './MultiplayerRoomView';
-
-const AVATARS = ['🦊', '🦉', '🚀', '⚡', '🧠', '🎯', '🐙', '🦁'];
+import { MP_AVATARS } from './multiplayer/mpCatalog';
 
 interface JoinMultiplayerViewProps {
   initialRoomCode?: string;
@@ -19,10 +19,10 @@ export const JoinMultiplayerView: React.FC<JoinMultiplayerViewProps> = ({
 }) => {
   const [roomCode, setRoomCode] = useState(initialRoomCode.replace(/\D/g, '').slice(0, 6));
   const [nickname, setNickname] = useState('');
-  const [avatar, setAvatar] = useState(AVATARS[0]);
+  const [avatar, setAvatar] = useState(MP_AVATARS[0]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [joinedRoomCode, setJoinedRoomCode] = useState<string | null>(null);
+  const [joinedLegacyCode, setJoinedLegacyCode] = useState<string | null>(null);
   const [playerUid, setPlayerUid] = useState<string | null>(null);
 
   const handleJoin = async (e: React.FormEvent) => {
@@ -40,14 +40,44 @@ export const JoinMultiplayerView: React.FC<JoinMultiplayerViewProps> = ({
 
     setLoading(true);
     try {
-      const guestUser = await signInGuestAnonymously();
+      // 1. Check new server-authoritative multiplayer room first
+      const infoRes = await fetch(`/api/mp/rooms/${cleanCode}/info`);
+      const contentType = infoRes.headers.get('content-type') || '';
+
+      if (contentType.includes('application/json')) {
+        const info = (await infoRes.json()) as {
+          error?: string;
+          status?: string;
+        };
+
+        if (infoRes.ok && !info.error) {
+          if (!auth.currentUser) {
+            await signInGuestAnonymously();
+          }
+          await apiPost(`/api/mp/rooms/${cleanCode}/join`, {
+            nickname: nickname.trim(),
+            avatar,
+          });
+          // Navigate into dedicated standalone multiplayer tab route
+          window.location.assign(`${window.location.pathname}?mpRoom=${cleanCode}`);
+          return;
+        }
+
+        if (infoRes.status === 410 || info.status === 'ended' || info.status === 'expired') {
+          setError(info.error || 'Deze spelkamer is beëindigd of verlopen.');
+          return;
+        }
+      }
+
+      // 2. Legacy Firestore fallback only if code wasn't a new room and isn't terminated
+      const guestUser = auth.currentUser || (await signInGuestAnonymously());
       await joinMultiplayerRoom(cleanCode, {
         uid: guestUser.uid,
         nickname: nickname.trim(),
         avatar,
       });
       setPlayerUid(guestUser.uid);
-      setJoinedRoomCode(cleanCode);
+      setJoinedLegacyCode(cleanCode);
     } catch (err) {
       const formatted = formatAuthErrorDutch(err);
       setError(formatted);
@@ -57,13 +87,13 @@ export const JoinMultiplayerView: React.FC<JoinMultiplayerViewProps> = ({
   };
 
   const innerContent =
-    joinedRoomCode && playerUid ? (
+    joinedLegacyCode && playerUid ? (
       <MultiplayerRoomView
-        roomCode={joinedRoomCode}
+        roomCode={joinedLegacyCode}
         currentUserId={playerUid}
         isHost={false}
         onExit={() => {
-          setJoinedRoomCode(null);
+          setJoinedLegacyCode(null);
           onClose();
         }}
       />
@@ -79,7 +109,7 @@ export const JoinMultiplayerView: React.FC<JoinMultiplayerViewProps> = ({
                 Meedoen aan spel
               </h2>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                Direct spelen zonder account
+                Direct spelen met 6-cijferige code
               </p>
             </div>
           </div>
@@ -143,7 +173,7 @@ export const JoinMultiplayerView: React.FC<JoinMultiplayerViewProps> = ({
               Kies een avatar
             </label>
             <div className="grid grid-cols-4 gap-2">
-              {AVATARS.map((item) => (
+              {MP_AVATARS.map((item) => (
                 <button
                   key={item}
                   type="button"
@@ -174,14 +204,14 @@ export const JoinMultiplayerView: React.FC<JoinMultiplayerViewProps> = ({
   if (isModal) {
     return (
       <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-950/60 backdrop-blur-xs p-4 sm:p-8 flex items-center justify-center">
-        <div className={joinedRoomCode ? 'w-full max-w-5xl' : 'w-full max-w-md'}>{innerContent}</div>
+        <div className={joinedLegacyCode ? 'w-full max-w-5xl' : 'w-full max-w-md'}>{innerContent}</div>
       </div>
     );
   }
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-[#0B0F17] text-slate-900 dark:text-slate-100 px-4 py-10">
-      <div className={joinedRoomCode ? 'max-w-5xl mx-auto' : 'max-w-md mx-auto'}>{innerContent}</div>
+      <div className={joinedLegacyCode ? 'max-w-5xl mx-auto' : 'max-w-md mx-auto'}>{innerContent}</div>
     </div>
   );
 };

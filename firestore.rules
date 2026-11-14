@@ -40,6 +40,10 @@ service cloud.firestore {
       return listVal is list && listVal.size() <= maxLen && (listVal.size() == 0 || listVal[0] is map);
     }
 
+    function isValidBoundedStringList(listVal, maxLen) {
+      return listVal is list && listVal.size() <= maxLen && (listVal.size() == 0 || listVal[0] is string);
+    }
+
     // --- Entity Validation Blueprints ---
     function isValidUserProfile(data, userId) {
       return data.keys().hasAll(['uid', 'email', 'displayName', 'photoURL', 'createdAt', 'updatedAt'])
@@ -82,7 +86,7 @@ service cloud.firestore {
         && isValidId(data.ownerId)
         && data.folderId is string && data.folderId.size() <= 128
         && data.title is string && data.title.size() >= 1 && data.title.size() <= 160
-        && data.type in ['note', 'pdf']
+        && data.type in ['note', 'pdf', 'docx', 'pptx', 'txt']
         && data.subject is string && data.subject.size() <= 80
         && data.content is string && data.content.size() <= 300000
         && data.fileDataUrl is string && data.fileDataUrl.size() <= 700000
@@ -146,7 +150,9 @@ service cloud.firestore {
         ])
         && data.keys().hasOnly([
           'ownerId', 'title', 'subject', 'sourceTitle',
-          'flashcards', 'pairs', 'questions', 'createdAt', 'updatedAt'
+          'flashcards', 'pairs', 'questions',
+          'selectedFolderIds', 'selectedItemIds', 'topics', 'sortRounds', 'puzzles',
+          'createdAt', 'updatedAt'
         ])
         && data.ownerId == userId
         && isValidId(data.ownerId)
@@ -156,6 +162,36 @@ service cloud.firestore {
         && isValidBoundedMapList(data.flashcards, 40)
         && isValidBoundedMapList(data.pairs, 30)
         && isValidBoundedMapList(data.questions, 30)
+        && (!('selectedFolderIds' in data) || isValidBoundedStringList(data.selectedFolderIds, 50))
+        && (!('selectedItemIds' in data) || isValidBoundedStringList(data.selectedItemIds, 100))
+        && (!('topics' in data) || isValidBoundedMapList(data.topics, 40))
+        && (!('sortRounds' in data) || isValidBoundedMapList(data.sortRounds, 10))
+        && (!('puzzles' in data) || isValidBoundedMapList(data.puzzles, 20))
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidSoloGameSession(data, userId) {
+      return data.keys().hasAll([
+          'ownerId', 'gameId', 'gameTitle', 'difficulty',
+          'material', 'progress', 'score', 'completed', 'updatedAtMs',
+          'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'ownerId', 'gameId', 'gameTitle', 'difficulty',
+          'material', 'progress', 'score', 'completed', 'updatedAtMs',
+          'createdAt', 'updatedAt'
+        ])
+        && data.ownerId == userId
+        && isValidId(data.ownerId)
+        && data.gameId is string && data.gameId.size() >= 1 && data.gameId.size() <= 64
+        && data.gameTitle is string && data.gameTitle.size() >= 1 && data.gameTitle.size() <= 160
+        && data.difficulty in ['easy', 'normal', 'hard']
+        && data.material is string && data.material.size() <= 350000
+        && data.progress is string && data.progress.size() <= 150000
+        && data.score is int && data.score >= 0 && data.score <= 10000000
+        && data.completed is bool
+        && data.updatedAtMs is int && data.updatedAtMs >= 0
         && data.createdAt is timestamp
         && data.updatedAt is timestamp;
     }
@@ -336,9 +372,30 @@ service cloud.firestore {
           && incoming().createdAt == existing().createdAt
           && incoming().updatedAt == request.time
           && incoming().diff(existing()).affectedKeys().hasOnly([
-            'title', 'subject', 'flashcards', 'pairs', 'questions', 'updatedAt'
+            'title', 'subject', 'flashcards', 'pairs', 'questions',
+            'selectedFolderIds', 'selectedItemIds', 'topics', 'sortRounds', 'puzzles', 'updatedAt'
           ]);
         allow delete: if isNonAnonOwner(userId) && isValidId(setId);
+      }
+
+      match /soloGameSessions/{sessionId} {
+        allow get: if isNonAnonOwner(userId) && isValidId(sessionId);
+        allow list: if isNonAnonOwner(userId) && resource.data.ownerId == request.auth.uid;
+        allow create: if isNonAnonOwner(userId)
+          && isValidId(sessionId)
+          && isValidSoloGameSession(incoming(), userId)
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time;
+        allow update: if isNonAnonOwner(userId)
+          && isValidId(sessionId)
+          && isValidSoloGameSession(incoming(), userId)
+          && incoming().ownerId == existing().ownerId
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly([
+            'difficulty', 'progress', 'score', 'completed', 'updatedAtMs', 'updatedAt'
+          ]);
+        allow delete: if isNonAnonOwner(userId) && isValidId(sessionId);
       }
 
       match /externalTools/{toolId} {
@@ -362,7 +419,7 @@ service cloud.firestore {
       }
     }
 
-    // --- Real-Time Multiplayer Game Rooms ---
+    // --- Legacy Real-Time Multiplayer Game Rooms ---
     match /gameRooms/{roomCode} {
       // Only direct GET by exact 6-digit code; no LIST scraping
       allow get: if isSignedIn() && isValidRoomCode(roomCode);
