@@ -198,14 +198,35 @@ service cloud.firestore {
 
     function isValidExternalTool(data, userId) {
       return data.keys().hasAll(['ownerId', 'name', 'url', 'subjectLabel', 'color', 'iconName', 'createdAt', 'updatedAt'])
-        && data.keys().hasOnly(['ownerId', 'name', 'url', 'subjectLabel', 'color', 'iconName', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly([
+          'ownerId', 'name', 'url', 'subjectLabel', 'description', 'gradeYear', 'level',
+          'sortOrder', 'folderIds', 'color', 'iconName', 'createdAt', 'updatedAt'
+        ])
         && data.ownerId == userId
         && isValidId(data.ownerId)
         && data.name is string && data.name.size() >= 1 && data.name.size() <= 80
         && data.url is string && data.url.size() >= 1 && data.url.size() <= 500
         && data.subjectLabel is string && data.subjectLabel.size() <= 80
+        && (!('description' in data) || (data.description is string && data.description.size() <= 240))
+        && (!('gradeYear' in data) || (data.gradeYear is string && data.gradeYear.size() <= 40))
+        && (!('level' in data) || (data.level is string && data.level.size() <= 40))
+        && (!('sortOrder' in data) || (data.sortOrder is number && data.sortOrder >= 0 && data.sortOrder <= 100000))
+        && (!('folderIds' in data) || isValidBoundedStringList(data.folderIds, 25))
         && data.color is string && data.color.size() <= 30
         && data.iconName is string && data.iconName.size() <= 40
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidToolFolder(data, userId) {
+      return data.keys().hasAll(['ownerId', 'name', 'color', 'sortOrder', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['ownerId', 'name', 'description', 'color', 'sortOrder', 'createdAt', 'updatedAt'])
+        && data.ownerId == userId
+        && isValidId(data.ownerId)
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 80
+        && (!('description' in data) || (data.description is string && data.description.size() <= 240))
+        && data.color is string && data.color.size() <= 30
+        && data.sortOrder is number && data.sortOrder >= 0 && data.sortOrder <= 100000
         && data.createdAt is timestamp
         && data.updatedAt is timestamp;
     }
@@ -413,9 +434,30 @@ service cloud.firestore {
           && incoming().createdAt == existing().createdAt
           && incoming().updatedAt == request.time
           && incoming().diff(existing()).affectedKeys().hasOnly([
-            'name', 'url', 'subjectLabel', 'color', 'iconName', 'updatedAt'
+            'name', 'url', 'subjectLabel', 'description', 'gradeYear', 'level',
+            'sortOrder', 'folderIds', 'color', 'iconName', 'updatedAt'
           ]);
         allow delete: if isNonAnonOwner(userId) && isValidId(toolId);
+      }
+
+      match /toolFolders/{folderId} {
+        allow get: if isNonAnonOwner(userId) && isValidId(folderId);
+        allow list: if isNonAnonOwner(userId) && resource.data.ownerId == request.auth.uid;
+        allow create: if isNonAnonOwner(userId)
+          && isValidId(folderId)
+          && isValidToolFolder(incoming(), userId)
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time;
+        allow update: if isNonAnonOwner(userId)
+          && isValidId(folderId)
+          && isValidToolFolder(incoming(), userId)
+          && incoming().ownerId == existing().ownerId
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly([
+            'name', 'description', 'color', 'sortOrder', 'updatedAt'
+          ]);
+        allow delete: if isNonAnonOwner(userId) && isValidId(folderId);
       }
     }
 

@@ -23,6 +23,7 @@ import {
   StudySet,
   Summary,
   ThemePreference,
+  ToolFolder,
 } from './types';
 import {
   ensureUserProfile,
@@ -30,9 +31,11 @@ import {
   subscribeAuth,
   updateUserThemePreference,
 } from './lib/firebase';
+import { apiGet } from './lib/apiClient';
 import {
   seedDefaultExternalTools,
   subscribeExternalTools,
+  subscribeToolFolders,
   subscribeFolders,
   subscribeItems,
   subscribeScheduleTasks,
@@ -51,6 +54,8 @@ import { PracticeView } from './components/PracticeView';
 import { ToolsHubView } from './components/ToolsHubView';
 import { NotebookView } from './components/NotebookView';
 import { ThemeSelector } from './components/ThemeSelector';
+import { ReminderToastBanner } from './components/ReminderToastBanner';
+import { useDesktopReminders } from './hooks/useDesktopReminders';
 
 interface ErrorBoundaryState {
   hasError: boolean;
@@ -240,6 +245,7 @@ function StudyFlowRoot() {
   // App Section & Mobile Sidebar
   const [section, setSection] = useState<AppSection>('dashboard');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [aiEnabled, setAiEnabled] = useState(false);
 
   // User-isolated Firestore data
   const [folders, setFolders] = useState<Folder[]>([]);
@@ -249,11 +255,13 @@ function StudyFlowRoot() {
   const [studySets, setStudySets] = useState<StudySet[]>([]);
   const [soloSessions, setSoloSessions] = useState<SoloGameSession[]>([]);
   const [externalTools, setExternalTools] = useState<ExternalTool[]>([]);
+  const [toolFolders, setToolFolders] = useState<ToolFolder[]>([]);
   const [dataLoading, setDataLoading] = useState(true);
   const seededToolsForRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!authReady || !user || user.isAnonymous || mpRoomCode) {
+      setAiEnabled(false);
       setFolders([]);
       setItems([]);
       setTasks([]);
@@ -261,13 +269,25 @@ function StudyFlowRoot() {
       setStudySets([]);
       setSoloSessions([]);
       setExternalTools([]);
+      setToolFolders([]);
       setDataLoading(false);
       return;
     }
 
+    let cancelled = false;
+    apiGet<{ aiEnabled: boolean }>('/api/me/capabilities', { requireAuth: true })
+      .then((res) => {
+        if (!cancelled) {
+          setAiEnabled(Boolean(res?.aiEnabled));
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setAiEnabled(false);
+      });
+
     setDataLoading(true);
     const uid = user.uid;
-    let firstLoadPending = 7;
+    let firstLoadPending = 8;
     const markDone = () => {
       firstLoadPending -= 1;
       if (firstLoadPending <= 0) setDataLoading(false);
@@ -306,12 +326,31 @@ function StudyFlowRoot() {
           seedDefaultExternalTools(uid).catch(() => {});
         }
       }),
+      subscribeToolFolders(uid, (d) => {
+        setToolFolders(d);
+        markDone();
+      }),
     ];
 
     return () => {
+      cancelled = true;
       unsubs.forEach((u) => u());
     };
   }, [authReady, user, mpRoomCode]);
+
+  useEffect(() => {
+    if (!aiEnabled && (section === 'practice' || section === 'notebook')) {
+      setSection('dashboard');
+    }
+  }, [aiEnabled, section]);
+
+  const activeUserId = authReady && user && !user.isAnonymous && !mpRoomCode ? user.uid : null;
+  const desktopReminders = useDesktopReminders({
+    userId: activeUserId,
+    tasks,
+    aiEnabled,
+    onNavigateSection: (sec) => setSection(sec),
+  });
 
   // Dedicated standalone multiplayer game tab (?mpRoom=XXXXXX)
   if (mpRoomCode) {
@@ -368,7 +407,10 @@ function StudyFlowRoot() {
   }
 
   const displayName = user.displayName || user.email?.split('@')[0] || 'Leerling';
-  const activeNav = NAV_ITEMS.find((n) => n.id === section);
+  const visibleNavItems = aiEnabled
+    ? NAV_ITEMS
+    : NAV_ITEMS.filter((item) => item.id !== 'practice' && item.id !== 'notebook');
+  const activeNav = visibleNavItems.find((n) => n.id === section) || visibleNavItems[0];
 
   return (
     <div className="min-h-screen flex bg-slate-50 dark:bg-[#0B0F17] text-slate-900 dark:text-slate-100">
@@ -382,7 +424,7 @@ function StudyFlowRoot() {
         </div>
 
         <nav className="flex-1 p-3 space-y-1">
-          {NAV_ITEMS.map(({ id, label, Icon }) => {
+          {visibleNavItems.map(({ id, label, Icon }) => {
             const active = section === id;
             return (
               <button
@@ -446,7 +488,7 @@ function StudyFlowRoot() {
               </button>
             </div>
             <nav className="flex-1 p-3 space-y-1">
-              {NAV_ITEMS.map(({ id, label, Icon }) => (
+              {visibleNavItems.map(({ id, label, Icon }) => (
                 <button
                   key={id}
                   type="button"
@@ -531,6 +573,8 @@ function StudyFlowRoot() {
                   userName={displayName}
                   tasks={tasks}
                   loading={dataLoading}
+                  aiEnabled={aiEnabled}
+                  desktopReminders={desktopReminders}
                   onNavigateSection={(sec) => setSection(sec)}
                 />
               )}
@@ -548,6 +592,7 @@ function StudyFlowRoot() {
                   summaries={summaries}
                   items={items}
                   loading={dataLoading}
+                  aiEnabled={aiEnabled}
                 />
               )}
               {section === 'games' && (
@@ -559,10 +604,11 @@ function StudyFlowRoot() {
                   studySets={studySets}
                   soloSessions={soloSessions}
                   loading={dataLoading}
+                  aiEnabled={aiEnabled}
                   onOpenJoinModal={() => setShowJoinModal(true)}
                 />
               )}
-              {section === 'practice' && (
+              {section === 'practice' && aiEnabled && (
                 <PracticeView
                   userId={user.uid}
                   userName={displayName}
@@ -575,10 +621,11 @@ function StudyFlowRoot() {
                 <ToolsHubView
                   userId={user.uid}
                   tools={externalTools}
+                  toolFolders={toolFolders}
                   loading={dataLoading}
                 />
               )}
-              {section === 'notebook' && <NotebookView items={items} />}
+              {section === 'notebook' && aiEnabled && <NotebookView items={items} />}
             </motion.div>
           </AnimatePresence>
         </main>
@@ -591,6 +638,18 @@ function StudyFlowRoot() {
           onClose={() => setShowJoinModal(false)}
         />
       )}
+
+      <ReminderToastBanner
+        toasts={desktopReminders.activeToasts}
+        snoozeMinutes={desktopReminders.settings.snoozeMinutes}
+        actionLabel={aiEnabled ? 'Naar Oefen vragen' : 'Naar Spelletjes'}
+        onAction={(toast) => {
+          desktopReminders.dismissToast(toast.id);
+          setSection(aiEnabled ? 'practice' : 'games');
+        }}
+        onSnooze={desktopReminders.snoozeToast}
+        onDismiss={desktopReminders.dismissToast}
+      />
     </div>
   );
 }

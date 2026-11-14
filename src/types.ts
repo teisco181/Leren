@@ -215,8 +215,24 @@ export interface ExternalTool {
   name: string;
   url: string;
   subjectLabel: string;
+  description?: string;
+  gradeYear?: string;
+  level?: string;
+  sortOrder?: number;
+  folderIds?: string[];
   color: string;
   iconName: string;
+  createdAt?: unknown;
+  updatedAt?: unknown;
+}
+
+export interface ToolFolder {
+  id: string;
+  ownerId: string;
+  name: string;
+  description?: string;
+  color: string;
+  sortOrder: number;
   createdAt?: unknown;
   updatedAt?: unknown;
 }
@@ -418,6 +434,7 @@ export interface PracticeMaterialSelection {
   fileStatuses: MaterialFileStatus[];
   topics: AnalyzedTopic[];
   warnings: string[];
+  dossierSummary?: string;
   createdAt: number;
   updatedAt: number;
 }
@@ -528,3 +545,36 @@ export interface PracticeDashboardState {
   };
 }
 
+// ============================================================================
+// Desktop Oefenherinneringen
+// ============================================================================
+
+export interface DesktopReminderSettings {
+  enabled: boolean;
+  dailyEnabled: boolean;
+  dailyTime: string; // HH:MM
+  daysOfWeek: number[]; // 0=zo, 1=ma .. 6=za
+  leadMinutesBeforeTask: number; // 0, 5, 10, 15, 30
+  soundEnabled: boolean;
+  snoozeMinutes: number;
+}
+
+export interface TaskReminderEntry {
+  time: string; // HH:MM
+  enabled: boolean;
+}
+
+export interface DesktopReminderState {
+  settings: DesktopReminderSettings;
+  taskReminders: Record<string, TaskReminderEntry>;
+  firedKeys: Record<string, number>;
+}
+
+export interface ActiveDesktopReminderToast {
+  id: string;
+  title: string;
+  body: string;
+  metaText: string;
+  taskId?: string;
+  triggeredAt: number;
+}

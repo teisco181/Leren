@@ -1,4 +1,4 @@
-import { GoogleGenAI, Type } from "@google/genai";
+import { GoogleGenAI, ThinkingLevel, Type } from "@google/genai";
 import type {
   AnalyzedTopic,
   MaterialFileStatus,
@@ -9,6 +9,12 @@ import type {
   StudyItemType,
 } from "../types";
 import type { AdaptivePlan, PracticeQuestionInternal } from "./practiceStore";
+import {
+  buildFullStudyDossier,
+  extractRelevantSourceWindow,
+  sanitizeSourceSection,
+} from "./deepMaterialAnalyzer";
+import { generateContentWithFailover } from "./geminiClient";
 
 export interface RawPracticeFileInput {
   id: string;
@@ -35,35 +41,7 @@ export interface PreparedSourceBundle {
   detectedSubject: string;
 }
 
-function sanitizeSourceSection(candidate: string, fileContent: string): string {
-  const clean = (candidate || "").trim();
-  if (!clean) return "Brontekst";
 
-  // Verify any explicit Pagina/Dia/Sectie number actually exists in the file text
-  const pageMatch = clean.match(/\b(pagina|page|p\.)\s*(\d+)\b/i);
-  if (pageMatch) {
-    const num = pageMatch[2];
-    const hasMarker = new RegExp(`(---|pagina|page)\\s*${num}\\b`, "i").test(fileContent);
-    if (!hasMarker) return "Brontekst";
-    return `Pagina ${num}`;
-  }
-
-  const diaMatch = clean.match(/\b(dia|slide)\s*(\d+)\b/i);
-  if (diaMatch) {
-    const num = diaMatch[2];
-    const hasMarker = new RegExp(`(---|dia|slide)\\s*${num}\\b`, "i").test(fileContent);
-    if (!hasMarker) return "Brontekst";
-    return `Dia ${num}`;
-  }
-
-  const sectieMatch = clean.match(/\b(sectie|paragraaf|hoofdstuk)\s*([0-9.]+)\b/i);
-  if (sectieMatch) {
-    const num = sectieMatch[2];
-    if (!fileContent.includes(num)) return "Brontekst";
-  }
-
-  return clean.slice(0, 60);
-}
 
 export function prepareSourceBundle(files: RawPracticeFileInput[]): PreparedSourceBundle {
   const fileStatuses: MaterialFileStatus[] = [];
@@ -98,7 +76,8 @@ export function prepareSourceBundle(files: RawPracticeFileInput[]): PreparedSour
         title: f.title,
         type: f.type,
         subject: f.subject || "Algemeen",
-        content: cleanText,
+        // Keep full extracted text (up to 250k chars) so Phase 1 reads every page/section
+        content: cleanText.slice(0, 250000),
       });
       fileStatuses.push({
         itemId: f.id,
@@ -112,17 +91,27 @@ export function prepareSourceBundle(files: RawPracticeFileInput[]): PreparedSour
   }
 
   const allowedTitles = readableFiles.map((f) => f.title);
+  // Spread representative preview excerpts cleanly (start, middle, end) for compact fallback
   const perFileBudget =
-    readableFiles.length > 0 ? Math.max(3500, Math.floor(62000 / readableFiles.length)) : 0;
+    readableFiles.length > 0 ? Math.max(4000, Math.floor(62000 / readableFiles.length)) : 0;
 
   const sourceBlock = readableFiles
-    .map(
-      (f, i) =>
-        `=== BRON ${i + 1}: "${f.title}" (type: ${f.type}, vak: ${f.subject}) ===\n${f.content.slice(
-          0,
-          perFileBudget
-        )}`
-    )
+    .map((f, i) => {
+      let excerpt = f.content;
+      if (f.content.length > perFileBudget) {
+        const part = Math.floor(perFileBudget / 3);
+        const midStart = Math.max(part, Math.floor(f.content.length / 2 - part / 2));
+        const endStart = Math.max(midStart + part, f.content.length - part);
+        excerpt = [
+          f.content.slice(0, part),
+          "\n... [midden van document] ...\n",
+          f.content.slice(midStart, midStart + part),
+          "\n... [einde van document] ...\n",
+          f.content.slice(endStart),
+        ].join("");
+      }
+      return `=== BRON ${i + 1}: "${f.title}" (type: ${f.type}, vak: ${f.subject}, ${f.content.length} tekens) ===\n${excerpt}`;
+    })
     .join("\n\n");
 
   const detectedSubject =
@@ -139,14 +128,15 @@ export function prepareSourceBundle(files: RawPracticeFileInput[]): PreparedSour
 }
 
 export async function analyzePracticeTopics(params: {
-  ai: GoogleGenAI;
+  ai?: GoogleGenAI;
   modelName: string;
   bundle: PreparedSourceBundle;
-}): Promise<{ topics: AnalyzedTopic[]; warnings: string[] }> {
+}): Promise<{ topics: AnalyzedTopic[]; dossierSummary: string; warnings: string[] }> {
   const { ai, modelName, bundle } = params;
   if (bundle.readableFiles.length === 0) {
     return {
       topics: [],
+      dossierSummary: "",
       warnings: [
         ...bundle.warnings,
         "De geselecteerde bestanden bevatten geen leesbare leerstof.",
@@ -154,74 +144,15 @@ export async function analyzePracticeTopics(params: {
     };
   }
 
-  const response = await ai.models.generateContent({
-    model: modelName,
-    contents: `ANALYSEER UITSLUITEND DEZE GESELECTEERDE LEERSTOF:
-
-${bundle.sourceBlock}
-
-Geldige brontitels: ${bundle.allowedTitles.map((t) => `"${t}"`).join(", ")}
-
-Extraheer 3 tot 12 concrete, niet-overlappende onderwerpen (topics) die aantoonbaar in de brontekst worden behandeld.
-Regels:
-- sourceTitle moet exact één van de geldige brontitels zijn.
-- sourceSection mag ALLEEN "Pagina X" of "Dia X" bevatten als zo'n marker ("--- Pagina X ---" of "--- Dia X ---") letterlijk in dat document voorkomt; gebruik anders een letterlijk kopje uit de tekst of "Brontekst".
-- factCount is het geschatte aantal toetsbare feiten/concepten in dat onderdeel.`,
-    config: {
-      systemInstruction: `Je bent de strikte leerstof-analist van StudyFlow AI Oefenen.
-Gebruik UITSLUITEND de aangeleverde brontekst. Verzin geen onderwerpen, feiten of paginanummers die niet in de tekst staan.`,
-      responseMimeType: "application/json",
-      responseSchema: {
-        type: Type.OBJECT,
-        properties: {
-          topics: {
-            type: Type.ARRAY,
-            items: {
-              type: Type.OBJECT,
-              properties: {
-                name: { type: Type.STRING },
-                sourceTitle: { type: Type.STRING },
-                sourceSection: { type: Type.STRING },
-                factCount: { type: Type.INTEGER },
-              },
-              required: ["name", "sourceTitle", "sourceSection", "factCount"],
-            },
-          },
-        },
-        required: ["topics"],
-      },
-    },
+  // Phase 1: Deep full-material reading over 100% of all chunks/pages with ThinkingLevel.XHIGH
+  const dossier = await buildFullStudyDossier({
+    ai,
+    modelName,
+    files: bundle.readableFiles,
+    includeCategoryHints: false,
   });
 
-  const parsed = JSON.parse((response.text ?? "{}").trim()) as {
-    topics?: Array<{ name: string; sourceTitle: string; sourceSection: string; factCount: number }>;
-  };
-
-  const matchFile = (candidate: string): ReadablePracticeFile => {
-    const lower = (candidate || "").trim().toLowerCase();
-    return (
-      bundle.readableFiles.find((f) => f.title.toLowerCase() === lower) ||
-      bundle.readableFiles[0]
-    );
-  };
-
-  const seen = new Set<string>();
-  const topics: AnalyzedTopic[] = [];
-  for (const t of parsed.topics || []) {
-    const name = (t.name || "").trim();
-    if (!name) continue;
-    const norm = name.toLowerCase();
-    if (seen.has(norm)) continue;
-    seen.add(norm);
-    const file = matchFile(t.sourceTitle);
-    topics.push({
-      name,
-      sourceTitle: file.title,
-      sourceSection: sanitizeSourceSection(t.sourceSection, file.content),
-      factCount: Math.max(1, Number(t.factCount) || 1),
-    });
-  }
-
+  const topics = dossier.topics;
   for (const status of bundle.fileStatuses) {
     if (!status.readable) continue;
     status.topics = topics.filter((t) => t.sourceTitle === status.title).map((t) => t.name);
@@ -232,11 +163,15 @@ Gebruik UITSLUITEND de aangeleverde brontekst. Verzin geen onderwerpen, feiten o
     warnings.push("Er konden geen duidelijke losse onderwerpen uit de geselecteerde bestanden worden gehaald.");
   }
 
-  return { topics, warnings };
+  return {
+    topics,
+    dossierSummary: dossier.formattedFactDigest,
+    warnings,
+  };
 }
 
 export async function generatePracticeQuestions(params: {
-  ai: GoogleGenAI;
+  ai?: GoogleGenAI;
   modelName: string;
   bundle: PreparedSourceBundle;
   subject: string;
@@ -244,8 +179,21 @@ export async function generatePracticeQuestions(params: {
   focusTopic?: string;
   settings: PracticeUserSettings;
   plan: AdaptivePlan;
-}): Promise<{ questions: PracticeQuestionInternal[]; materialNotice?: string }> {
+  dossierSummary?: string;
+}): Promise<{ questions: PracticeQuestionInternal[]; dossierSummary: string; materialNotice?: string }> {
   const { ai, modelName, bundle, subject, mode, focusTopic, settings, plan } = params;
+
+  // Ensure Phase 1 full-material analysis has ALWAYS run before generating questions
+  let resolvedDossier = (params.dossierSummary || "").trim();
+  if (!resolvedDossier) {
+    const dossier = await buildFullStudyDossier({
+      ai,
+      modelName,
+      files: bundle.readableFiles,
+      includeCategoryHints: false,
+    });
+    resolvedDossier = dossier.formattedFactDigest;
+  }
 
   const slotSpec = plan.slots
     .map((s, idx) => {
@@ -275,10 +223,13 @@ export async function generatePracticeQuestions(params: {
     topic: `Onderwerp oefenen: ALLE vragen moeten uitsluitend over het onderwerp "${focusTopic || ""}" gaan.`,
   };
 
-  const response = await ai.models.generateContent({
+  // Phase 2: Generate evenly distributed, deep questions across the full dossier + representative excerpts
+  const response = await generateContentWithFailover({
     model: modelName,
-    contents: `GESELECTEERDE LEERSTOF (ENIGE TOEGESTANE KENNISBRON):
+    contents: `FASE 1 — VOLLEDIG KENNISDOSSIER VAN ALLE GESELECTEERDE LEERSTOF (BEGIN TOT EIND):
+${resolvedDossier || "(Geen extra dossieroverzicht beschikbaar)"}
 
+REPRESENTATIEVE BRONTREKKEN UIT DE DOCUMENTEN:
 ${bundle.sourceBlock}
 
 Geldige brontitels: ${bundle.allowedTitles.map((t) => `"${t}"`).join(", ")}
@@ -312,11 +263,13 @@ INSTRUCTIES PER VRAAGTYPE:
    - "sourceSection": ALLEEN "Pagina X" of "Dia X" als die marker echt bij die tekst staat, anders een kort kopje of "Brontekst". NOOIT paginanummers verzinnen!
    - "evidenceQuote": een kort letterlijk citaat (max 180 tekens) uit de bron dat het antwoord bewijst.
    - "hint": een subtiele tip zonder het antwoord weg te geven (${settings.hintsEnabled ? "verplicht kort en behulpzaam" : "korte verwijzing naar het onderwerp"}).
-   - ALS de geselecteerde bronnen te weinig verschillende verifieerbare feiten bevatten voor alle ${plan.slots.length} vragen (of voor het gekozen onderwerp "${focusTopic || ""}"), lever dan MINDER vragen aan en beschrijf eerlijk waarom in "insufficientMaterialReason". Verzin NOOIT feiten van buitenaf!`,
+   - ALS de geselecteerde bronnen te weinig verschillende verifieerbare feiten bevatten voor alle ${plan.slots.length} vragen (of voor het gekozen onderwerp "${focusTopic || ""}"), lever dan MINDER vragen aan en beschrijf eerlijk waarom in "insufficientMaterialReason". Verzin NOOIT feiten van buitenaf!
+   - Spreid de vragen eerlijk over ALLE onderwerpen en over het begin, midden en einde van de geselecteerde bestanden.`,
     config: {
+      thinkingConfig: { thinkingLevel: ThinkingLevel.XHIGH },
       systemInstruction: `Je bent de persoonlijke AI-docent van StudyFlow Oefenen.
 STRIKTE BRONREGEL (GEEN UITZONDERINGEN):
-- Gebruik UITSLUITEND feiten uit de GESELECTEERDE LEERSTOF hierboven.
+- Gebruik UITSLUITEND feiten uit het FASE 1-DOSSIER en de BRONTREKKEN hierboven.
 - Voeg GEEN algemene kennis, internetfeiten of eigen verzinsels toe.
 - Als iets niet in de geselecteerde tekst staat, maak er geen vraag over en vul geen ontbrekend detail aan.
 - Alle vragen, opties, voorbeeldantwoorden en uitleg moeten in natuurlijk Nederlands zijn en direct controleerbaar in de bron.`,
@@ -495,7 +448,11 @@ STRIKTE BRONREGEL (GEEN UITZONDERINGEN):
     materialNotice = `De geselecteerde leerstof bood voldoende verifieerbare feiten voor ${validated.length} van de ${settings.questionCount} gevraagde vragen zonder informatie aan te vullen.`;
   }
 
-  return { questions: validated.slice(0, settings.questionCount), materialNotice };
+  return {
+    questions: validated.slice(0, settings.questionCount),
+    dossierSummary: resolvedDossier,
+    materialNotice,
+  };
 }
 
 export function gradeMcPracticeAnswer(
@@ -602,13 +559,13 @@ export function gradeMcPracticeAnswer(
 }
 
 export async function gradeOpenPracticeAnswer(params: {
-  ai: GoogleGenAI;
+  ai?: GoogleGenAI;
   modelName: string;
   question: PracticeQuestionInternal;
   typedAnswer: string;
   sourceContent: string;
 }): Promise<PracticeAnswerFeedback> {
-  const { ai, modelName, question, typedAnswer, sourceContent } = params;
+  const { modelName, question, typedAnswer, sourceContent } = params;
   const now = Date.now();
   const cleanAnswer = (typedAnswer || "").trim();
 
@@ -628,10 +585,17 @@ export async function gradeOpenPracticeAnswer(params: {
     };
   }
 
-  const response = await ai.models.generateContent({
+  const relevantSource = extractRelevantSourceWindow(
+    sourceContent,
+    question.sourceSection,
+    `${question.prompt} ${question.referenceAnswer} ${question.evidenceQuote || ""}`,
+    32000
+  );
+
+  const response = await generateContentWithFailover({
     model: modelName,
     contents: `BRONDOCUMENT "${question.sourceTitle}" (${question.sourceSection}):
-${sourceContent.slice(0, 26000)}
+${relevantSource}
 
 VRAAG (${question.topic}, niveau: ${question.difficulty}):
 ${question.prompt}
@@ -656,6 +620,7 @@ Beoordeel het antwoord van de leerling eerlijk en inhoudelijk aan de hand van de
    - "feedback": directe, opbouwende uitleg in het Nederlands waarom het goed, gedeeltelijk goed of fout is.
    - "explanation": heldere toelichting gebaseerd op de bron.`,
     config: {
+      thinkingConfig: { thinkingLevel: ThinkingLevel.XHIGH },
       systemInstruction: `Je bent de eerlijke nakijk-docent van StudyFlow AI Oefenen.
 Beoordeel UITSLUITEND op basis van de aangeleverde brontekst. Voeg geen externe feiten toe. Wees bemoedigend maar inhoudelijk nauwkeurig.`,
       responseMimeType: "application/json",

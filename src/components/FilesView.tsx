@@ -6,20 +6,25 @@ import {
   ChevronRight,
   Code,
   Edit3,
+  ExternalLink,
   Eye,
   FileText,
   Folder as FolderIcon,
   FolderPlus,
+  Globe,
   Heading2,
   Italic,
+  Link2,
   List,
   Plus,
   Search,
   Trash2,
   Upload,
   X,
+  Youtube,
 } from 'lucide-react';
 import { Folder, StudyItem } from '../types';
+import { apiPost } from '../lib/apiClient';
 import {
   createFolder,
   createStudyItem,
@@ -82,7 +87,16 @@ export const FilesView: React.FC<FilesViewProps> = ({
 
   // Upload status & errors
   const [actionError, setActionError] = useState<string | null>(null);
+  const [actionNotice, setActionNotice] = useState<string | null>(null);
   const [uploadingPdf, setUploadingPdf] = useState(false);
+
+  // URL / YouTube Link Import Modal
+  const [urlModalOpen, setUrlModalOpen] = useState(false);
+  const [importUrl, setImportUrl] = useState('');
+  const [importTitleOverride, setImportTitleOverride] = useState('');
+  const [importSubjectOverride, setImportSubjectOverride] = useState('');
+  const [importingUrl, setImportingUrl] = useState(false);
+  const [importModalError, setImportModalError] = useState<string | null>(null);
 
   // Delete confirmation
   const [confirmDelete, setConfirmDelete] = useState<
@@ -299,11 +313,59 @@ export const FilesView: React.FC<FilesViewProps> = ({
     }, 0);
   };
 
-  const typeLabel = (t: StudyItem['type']) => {
-    if (t === 'pdf') return 'PDF';
-    if (t === 'docx') return 'Word (DOCX)';
-    if (t === 'pptx') return 'PowerPoint (PPTX)';
-    if (t === 'txt') return 'Tekstbestand';
+  const handleImportUrlSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!importUrl.trim()) return;
+    setImportingUrl(true);
+    setImportModalError(null);
+    setActionError(null);
+    setActionNotice(null);
+    try {
+      const imported = await apiPost<{
+        title: string;
+        subject: string;
+        content: string;
+        sourceUrl: string;
+        sourceKind: 'youtube' | 'website';
+        mimeType: string;
+        notice?: string;
+      }>('/api/materials/import-url', { url: importUrl.trim() }, { requireAuth: true });
+
+      const newId = await createStudyItem(userId, {
+        folderId: currentFolderId,
+        title: importTitleOverride.trim() || imported.title,
+        type: 'note',
+        subject: importSubjectOverride.trim() || currentFolder?.subject || imported.subject || 'Algemeen',
+        content: imported.content,
+        driveUrl: imported.sourceUrl,
+        mimeType: imported.mimeType,
+      });
+
+      setUrlModalOpen(false);
+      setImportUrl('');
+      setImportTitleOverride('');
+      setImportSubjectOverride('');
+      setSelectedItemId(newId);
+      setNotePreviewMode(true);
+      if (imported.notice) {
+        setActionNotice(imported.notice);
+      }
+    } catch (err) {
+      setImportModalError(
+        err instanceof Error ? err.message : 'Kon de inhoud van deze link niet uitlezen.'
+      );
+    } finally {
+      setImportingUrl(false);
+    }
+  };
+
+  const typeLabel = (item: StudyItem) => {
+    if (item.type === 'pdf') return 'PDF';
+    if (item.type === 'docx') return 'Word (DOCX)';
+    if (item.type === 'pptx') return 'PowerPoint (PPTX)';
+    if (item.type === 'txt') return 'Tekstbestand';
+    if (item.mimeType === 'text/x-youtube') return 'YouTube-uitleg';
+    if (item.mimeType === 'text/html') return 'Web-samenvatting';
     return 'Notitie';
   };
 
@@ -351,6 +413,21 @@ export const FilesView: React.FC<FilesViewProps> = ({
 
           <button
             type="button"
+            onClick={() => {
+              setImportUrl('');
+              setImportTitleOverride('');
+              setImportSubjectOverride(currentFolder?.subject || '');
+              setImportModalError(null);
+              setUrlModalOpen(true);
+            }}
+            className="px-3.5 py-2 rounded-lg text-sm font-medium bg-white dark:bg-[#111827] border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-2 whitespace-nowrap shrink-0"
+          >
+            <Link2 className="w-4 h-4" />
+            <span>Link uitlezen</span>
+          </button>
+
+          <button
+            type="button"
             disabled={uploadingPdf}
             onClick={() => fileInputRef.current?.click()}
             className="px-3.5 py-2 rounded-lg text-sm font-medium bg-white dark:bg-[#111827] border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-2 whitespace-nowrap shrink-0 disabled:opacity-60"
@@ -372,6 +449,15 @@ export const FilesView: React.FC<FilesViewProps> = ({
         <div className="p-3.5 rounded-lg bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 text-xs text-red-700 dark:text-red-300 flex items-center justify-between gap-3">
           <span>{actionError}</span>
           <button type="button" onClick={() => setActionError(null)}>
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
+      {actionNotice && (
+        <div className="p-3.5 rounded-lg bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900 text-xs text-amber-800 dark:text-amber-300 flex items-center justify-between gap-3">
+          <span>{actionNotice}</span>
+          <button type="button" onClick={() => setActionNotice(null)}>
             <X className="w-4 h-4" />
           </button>
         </div>
@@ -550,6 +636,10 @@ export const FilesView: React.FC<FilesViewProps> = ({
                             <Upload className="w-4 h-4 text-red-600 dark:text-red-400" />
                           ) : item.type === 'docx' || item.type === 'pptx' ? (
                             <FileText className="w-4 h-4 text-sky-600 dark:text-sky-400" />
+                          ) : item.mimeType === 'text/x-youtube' ? (
+                            <Youtube className="w-4 h-4 text-red-600 dark:text-red-400" />
+                          ) : item.mimeType === 'text/html' ? (
+                            <Globe className="w-4 h-4 text-sky-600 dark:text-sky-400" />
                           ) : (
                             <FileText className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
                           )}
@@ -559,7 +649,7 @@ export const FilesView: React.FC<FilesViewProps> = ({
                             {item.title}
                           </p>
                           <p className="text-xs text-slate-500 dark:text-slate-400 truncate">
-                            {typeLabel(item.type)} · {item.subject || 'Algemeen'}
+                            {typeLabel(item)} · {item.subject || 'Algemeen'}
                           </p>
                         </div>
                       </button>
@@ -603,6 +693,18 @@ export const FilesView: React.FC<FilesViewProps> = ({
               </div>
 
               <div className="flex items-center gap-2 shrink-0">
+                {selectedItem.driveUrl && (
+                  <a
+                    href={selectedItem.driveUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-2.5 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-1.5 whitespace-nowrap shrink-0"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" />
+                    <span>Bron openen</span>
+                  </a>
+                )}
+
                 {/* Move Folder Dropdown */}
                 <select
                   value={selectedItem.folderId}
@@ -759,7 +861,7 @@ export const FilesView: React.FC<FilesViewProps> = ({
                           : 'text-slate-600 dark:text-slate-400'
                       }`}
                     >
-                      Geëxtraheerde leerstof ({typeLabel(selectedItem.type)})
+                      Geëxtraheerde leerstof ({typeLabel(selectedItem)})
                     </button>
                   </div>
                   <span className="text-xs text-slate-500 dark:text-slate-400 tabular-nums">
@@ -869,6 +971,97 @@ export const FilesView: React.FC<FilesViewProps> = ({
                   className="px-4 py-2 rounded-lg text-sm font-medium bg-indigo-600 hover:bg-indigo-700 text-white disabled:opacity-60"
                 >
                   {folderBusy ? 'Opslaan...' : 'Opslaan'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Import YouTube / Website URL Modal */}
+      {urlModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs">
+          <div className="w-full max-w-md rounded-2xl bg-white dark:bg-[#111827] border border-slate-200 dark:border-slate-800 p-6">
+            <div className="flex items-center justify-between">
+              <h3 className="text-base font-bold text-slate-900 dark:text-slate-100">
+                YouTube-video of websitelink uitlezen
+              </h3>
+              <button
+                type="button"
+                onClick={() => setUrlModalOpen(false)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <p className="mt-2 text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
+              Plak een link van een YouTube-uitlegvideo of een webpagina met een samenvatting.
+              De inhoud wordt automatisch uitgelezen en opgeslagen als studienotitie in deze map.
+            </p>
+
+            {importModalError && (
+              <div className="mt-3 p-3 rounded-lg bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 text-xs text-red-700 dark:text-red-300">
+                {importModalError}
+              </div>
+            )}
+
+            <form onSubmit={handleImportUrlSubmit} className="mt-4 space-y-4">
+              <div>
+                <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
+                  YouTube- of website-link
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={importUrl}
+                  onChange={(e) => setImportUrl(e.target.value)}
+                  placeholder="https://www.youtube.com/watch?v=... of https://..."
+                  className="w-full px-3.5 py-2 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
+                    Titel (optioneel)
+                  </label>
+                  <input
+                    type="text"
+                    value={importTitleOverride}
+                    onChange={(e) => setImportTitleOverride(e.target.value)}
+                    placeholder="Automatisch uit link"
+                    className="w-full px-3 py-2 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
+                    Vak (optioneel)
+                  </label>
+                  <input
+                    type="text"
+                    value={importSubjectOverride}
+                    onChange={(e) => setImportSubjectOverride(e.target.value)}
+                    placeholder={currentFolder?.subject || 'Bijv. Biologie'}
+                    className="w-full px-3 py-2 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
+                  />
+                </div>
+              </div>
+
+              <div className="pt-2 flex justify-end gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => setUrlModalOpen(false)}
+                  className="px-4 py-2 rounded-lg text-sm font-medium border border-slate-200 dark:border-slate-700 whitespace-nowrap shrink-0"
+                >
+                  Annuleren
+                </button>
+                <button
+                  type="submit"
+                  disabled={importingUrl}
+                  className="px-4 py-2 rounded-lg text-sm font-medium bg-indigo-600 hover:bg-indigo-700 text-white disabled:opacity-60 whitespace-nowrap shrink-0"
+                >
+                  {importingUrl ? 'Uitlezen...' : 'Link uitlezen & opslaan'}
                 </button>
               </div>
             </form>

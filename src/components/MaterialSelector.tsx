@@ -431,7 +431,7 @@ export const MaterialSelector: React.FC<MaterialSelectorProps> = ({
           {analyzing ? (
             <>
               <Loader2 className="w-4 h-4 animate-spin" />
-              <span>Leerstof analyseren &amp; controleren...</span>
+              <span>Alle stof grondig analyseren &amp; controleren (dit kan even duren)...</span>
             </>
           ) : analyzed ? (
             <>

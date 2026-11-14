@@ -4,12 +4,16 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { createServer as createViteServer } from "vite";
 import dotenv from "dotenv";
-import { GoogleGenAI, Type } from "@google/genai";
+import { ThinkingLevel, Type } from "@google/genai";
 import { WebSocketServer, WebSocket } from "ws";
 import { verifyFirebaseIdToken, VerifiedFirebaseUser } from "./src/server/firebaseAuth";
 import { MultiplayerRoomStore, MP_GAME_SPECS } from "./src/server/mpStore";
 import * as practiceStore from "./src/server/practiceStore";
 import * as practiceAi from "./src/server/practiceAi";
+import * as deepAnalyzer from "./src/server/deepMaterialAnalyzer";
+import * as reminderStore from "./src/server/reminderStore";
+import { importStudyMaterialFromUrl } from "./src/server/urlImporter";
+import { MODEL_NAME, generateContentWithFailover } from "./src/server/geminiClient";
 import type {
   AnalyzedMaterial,
   AnalyzedTopic,
@@ -29,17 +33,6 @@ dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-
-const ai = new GoogleGenAI({
-  apiKey: process.env.GEMINI_API_KEY,
-  httpOptions: {
-    headers: {
-      "User-Agent": "aistudio-build",
-    },
-  },
-});
-
-const MODEL_NAME = "gemini-4-hydrogen";
 
 function handleAiError(res: express.Response, err: unknown, fallbackMsg: string) {
   console.error("Gemini API error:", err);
@@ -98,7 +91,7 @@ async function requireAuth(
     const user = await verifyFirebaseIdToken(token);
     if (opts?.forbidAnonymous && user.isAnonymous) {
       res.status(403).json({
-        error: "Log in met een StudyFlow-account om een spelkamer aan te maken.",
+        error: "Log in met een StudyFlow-account om deze functie te gebruiken.",
       });
       return null;
     }
@@ -112,6 +105,32 @@ async function requireAuth(
     });
     return null;
   }
+}
+
+const AI_ALLOWED_EMAILS = new Set([
+  "224238@leerling.alkwin.nl",
+  "teisco181@gmail.com",
+]);
+
+function isAiAllowedUser(user: VerifiedFirebaseUser): boolean {
+  if (user.isAnonymous) return false;
+  const emailNorm = (user.email || "").trim().toLowerCase();
+  return Boolean(emailNorm && AI_ALLOWED_EMAILS.has(emailNorm));
+}
+
+async function requireAiAccess(
+  req: express.Request,
+  res: express.Response
+): Promise<VerifiedFirebaseUser | null> {
+  const user = await requireAuth(req, res, { forbidAnonymous: true });
+  if (!user) return null;
+  if (!isAiAllowedUser(user)) {
+    res.status(403).json({
+      error: "AI-functies zijn momenteel niet beschikbaar voor dit account.",
+    });
+    return null;
+  }
+  return user;
 }
 
 interface RoomSocketEntry {
@@ -216,8 +235,17 @@ async function startServer() {
     res.json({ ok: true });
   });
 
+  // Account capabilities (behind-the-scenes feature visibility without leaking allowlists)
+  app.get("/api/me/capabilities", async (req, res) => {
+    const user = await requireAuth(req, res, { forbidAnonymous: true });
+    if (!user) return;
+    return res.json({ aiEnabled: isAiAllowedUser(user) });
+  });
+
   // 1. AI Oefenschema Generator
   app.post("/api/ai/schedule", async (req, res) => {
+    const user = await requireAiAccess(req, res);
+    if (!user) return;
     try {
       const { examDate, subjects, material, dailyMinutes, todayDate } = req.body as {
         examDate: string;
@@ -231,17 +259,18 @@ async function startServer() {
         return res.status(400).json({ error: "Toetsdatum en leerstof zijn verplicht." });
       }
 
-      const response = await ai.models.generateContent({
+      const response = await generateContentWithFailover({
         model: MODEL_NAME,
         contents: `Vandaag is ${todayDate}. De toetsdatum is ${examDate}.
 Vak(ken): ${subjects || "Algemeen"}.
 Gewenste leertijd per dag: ongeveer ${dailyMinutes || 45} minuten.
 Opgegeven leerstof:
-${material.slice(0, 20000)}
+${material.slice(0, 60000)}
 
 Maak een realistisch, wetenschappelijk onderbouwd dag-tot-dag oefenschema in het Nederlands tot en met de dag vóór de toets (of inclusief een korte herhaling op de dag zelf als er maar 1 dag is).
 Pas principes van gespreide herhaling (spaced repetition), actieve herinnering (zelftests/flashcards) en afwisseling (interleaving) toe.`,
         config: {
+          thinkingConfig: { thinkingLevel: ThinkingLevel.XHIGH },
           systemInstruction:
             "Je bent een ervaren Nederlandse studiecoach voor StudyFlow. Genereer concrete, haalbare dagtaken met een datum in exact YYYY-MM-DD formaat tussen vandaag en de toetsdatum.",
           responseMimeType: "application/json",
@@ -277,6 +306,8 @@ Pas principes van gespreide herhaling (spaced repetition), actieve herinnering (
 
   // 2. AI Samenvatting Generator
   app.post("/api/ai/summary", async (req, res) => {
+    const user = await requireAiAccess(req, res);
+    if (!user) return;
     try {
       const { title, subject, content } = req.body as {
         title: string;
@@ -288,15 +319,35 @@ Pas principes van gespreide herhaling (spaced repetition), actieve herinnering (
         return res.status(400).json({ error: "Broninhoud is leeg. Voeg eerst tekst toe aan het document." });
       }
 
-      const response = await ai.models.generateContent({
+      const cleanContent = content.trim();
+      let summarySource = cleanContent.slice(0, 50000);
+      if (cleanContent.length > 50000) {
+        const dossier = await deepAnalyzer.buildFullStudyDossier({
+          modelName: MODEL_NAME,
+          files: [
+            {
+              id: "summary_src",
+              title: title || "Studiedocument",
+              type: "txt",
+              subject: subject || "Algemeen",
+              content: cleanContent.slice(0, 250000),
+            },
+          ],
+          includeCategoryHints: false,
+        });
+        summarySource = `FASE 1 — VOLLEDIGE DOCUMENTANALYSE (ALLE PAGINA'S/SECTIES):\n${dossier.formattedFactDigest}\n\nOPENING VAN HET DOCUMENT:\n${cleanContent.slice(0, 18000)}\n\nEINDE VAN HET DOCUMENT:\n${cleanContent.slice(-12000)}`;
+      }
+
+      const response = await generateContentWithFailover({
         model: MODEL_NAME,
         contents: `Titel van de bron: ${title || "Studiedocument"}
 Vak: ${subject || "Algemeen"}
-Brontekst:
-${content.slice(0, 60000)}
+Brontekst / geanalyseerd dossier:
+${summarySource}
 
-Maak een heldere, gestructureerde Nederlandse samenvatting in Markdown (met duidelijke koppen en opsommingen), een lijst met belangrijke kernbegrippen en definities, en een korte zelftest van 4 tot 6 vragen met antwoorden.`,
+Maak een heldere, gestructureerde Nederlandse samenvatting in Markdown (met duidelijke koppen en opsommingen) die ALLE delen van de bron meeneemt, een lijst met belangrijke kernbegrippen en definities, en een korte zelftest van 4 tot 6 vragen met antwoorden.`,
         config: {
+          thinkingConfig: { thinkingLevel: ThinkingLevel.XHIGH },
           systemInstruction:
             "Je bent een Nederlandse studie-assistent voor StudyFlow. Maak overzichtelijke, nauwkeurige samenvattingen UITSLUITEND op basis van de aangeleverde bron. Verzin geen feiten buiten de bron.",
           responseMimeType: "application/json",
@@ -342,6 +393,8 @@ Maak een heldere, gestructureerde Nederlandse samenvatting in Markdown (met duid
 
   // 3. Strenge Leerstof-Analyse & Spelinhoud-Extractor (enkel uit geselecteerde bestanden)
   app.post("/api/ai/analyze-material", async (req, res) => {
+    const user = await requireAiAccess(req, res);
+    if (!user) return;
     try {
       const { title, subject, selectedFolderIds, selectedItemIds, files } = req.body as {
         title?: string;
@@ -447,35 +500,65 @@ Maak een heldere, gestructureerde Nederlandse samenvatting in Markdown (met duid
         return res.json(emptyResult);
       }
 
-      // Distribute character budget fairly across selected readable files (max ~65k chars total)
-      const perFileBudget = Math.max(3000, Math.floor(60000 / readableFiles.length));
-      const sourceBlock = readableFiles
-        .map(
-          (f, i) =>
-            `=== BRON ${i + 1}: "${f.title}" (type: ${f.type}, vak: ${f.subject}) ===\n${f.content.slice(0, perFileBudget)}`
-        )
+      // FASE 1: Diepgaande analyse over 100% van alle pagina's/secties van alle gekozen bronnen
+      const dossier = await deepAnalyzer.buildFullStudyDossier({
+        modelName: MODEL_NAME,
+        files: readableFiles.map((f) => ({
+          ...f,
+          content: f.content.slice(0, 250000),
+        })),
+        includeCategoryHints: true,
+      });
+
+      // Representatieve fragmenten uit begin, midden en einde per bron ter verrijking van Fase 2
+      const perFileBudget = Math.max(3000, Math.floor(42000 / readableFiles.length));
+      const sourceExcerpts = readableFiles
+        .map((f, i) => {
+          let excerpt = f.content;
+          if (f.content.length > perFileBudget) {
+            const part = Math.floor(perFileBudget / 3);
+            const midStart = Math.max(part, Math.floor(f.content.length / 2 - part / 2));
+            const endStart = Math.max(midStart + part, f.content.length - part);
+            excerpt = [
+              f.content.slice(0, part),
+              "\n... [midden van document] ...\n",
+              f.content.slice(midStart, midStart + part),
+              "\n... [einde van document] ...\n",
+              f.content.slice(endStart),
+            ].join("");
+          }
+          return `=== BRON ${i + 1}: "${f.title}" (type: ${f.type}, vak: ${f.subject}) ===\n${excerpt}`;
+        })
         .join("\n\n");
 
       const allowedTitles = readableFiles.map((f) => f.title);
+      const categoryHintsText =
+        dossier.categoryHints.length > 0
+          ? `\nAANGETROFFEN CATEGORIEËN UIT FASE 1:\n${JSON.stringify(dossier.categoryHints)}\n`
+          : "";
 
-      const response = await ai.models.generateContent({
+      // FASE 2: Maak evenwichtig gespreide spelvragen, puzzels en sorteeropdrachten op basis van de volledige stof
+      const response = await generateContentWithFailover({
         model: MODEL_NAME,
-        contents: `ANALYSEER UITSLUITEND DE ONDERSTAANDE GESELECTEERDE BRONNEN:
-
-${sourceBlock}
+        contents: `FASE 1 — VOLLEDIG KENNISDOSSIER OVER ALLE GESELECTEERDE LEERSTOF (${dossier.chunksProcessed} geanalyseerde delen):
+${dossier.formattedFactDigest}
+${categoryHintsText}
+REPRESENTATIEVE BRONTREKKEN:
+${sourceExcerpts}
 
 Geldige brontitels om naar te verwijzen: ${allowedTitles.map((t) => `"${t}"`).join(", ")}
 
-Extraheer in het Nederlands:
-1. topics (3 tot 10): overzicht van onderwerpen uit de bronnen, elk met name, sourceTitle (exact een van de geldige brontitels), sourceSection (bijv. "Pagina 2", "Dia 3", "Paragraaf 1" of kort kopje uit de tekst) en factCount.
-2. concepts (tot 16 unieke kernbegrippen): elk met term (1-4 woorden, rechtstreeks uit de brontekst), definition (heldere uitleg uit de brontekst, max 130 tekens), sourceTitle en sourceSection.
-3. questions (tot 18 unieke meerkeuzevragen): elk vraag+antwoord+uitleg MOET direct te controleren zijn in de brontekst! Precies 4 opties, correctIndex (0..3), difficulty ("easy" | "normal" | "hard"), explanation (leg uit waar in de bron het klopt), sourceTitle en sourceSection. Voorkom dubbele of vrijwel identieke vragen.
+Extraheer in het Nederlands en spreid evenwichtig over ALLE bovenstaande onderwerpen (begin, midden en einde van de bronnen):
+1. topics (3 tot 18): overzicht van onderwerpen uit de bronnen, elk met name, sourceTitle (exact een van de geldige brontitels), sourceSection (bijv. "Pagina 2", "Dia 3", "Paragraaf 1" of kort kopje uit de tekst) en factCount.
+2. concepts (tot 20 unieke kernbegrippen): elk met term (1-4 woorden, rechtstreeks uit de brontekst), definition (heldere uitleg uit de brontekst, max 130 tekens), sourceTitle en sourceSection.
+3. questions (tot 18 unieke meerkeuzevragen): elk vraag+antwoord+uitleg MOET direct te controleren zijn in de brontekst! Precies 4 opties, correctIndex (0..3), difficulty ("easy" | "normal" | "hard"), explanation (leg uit waar in de bron het klopt), sourceTitle en sourceSection. Voorkom dubbele of vrijwel identieke vragen en zorg dat vragen uit alle delen van de leerstof komen.
 4. sortRounds (0 tot 3): ALLEEN maken als de brontekst zelf twee duidelijke categorieën/groepen/tijdvakken/begrippenfamilies bevat! Als de bron maar één onderwerp/categorie bevat, laat sortRounds dan LEEG ([]). Verzin NOOIT algemene kennis voor extra categorieën.
-5. puzzles (2 tot 8): korte deductie-, code-, volgorde- of aanwijzingspuzzels (kind: "code" | "sequence" | "deduction" | "clue") die 100% afleidbaar zijn uit feiten, jaartallen, stappen, aantallen of oorzaak-gevolg uit de brontekst (NOOIT zelfbedachte rekensommen of verzonnen verhaaltjes). Elke puzzel heeft precies 4 opties, één exact passend answer (uit options), een hint en explanation uit de bron.`,
+5. puzzles (2 tot 8): korte deductie-, code-, volgorde- of aanwijzingspuzzels (kind: "code" | "sequence" | "deduction" | "clue") die 100% afleidbaar zijn uit feiten, jaartallen, stappen, aantallen of oorzaak-gevolg uit de brontekst (NOOIT zelfbedachte rekensommen of verhaaltjes). Elke puzzel heeft precies 4 opties, één exact passend answer (uit options), een hint en explanation uit de bron.`,
         config: {
+          thinkingConfig: { thinkingLevel: ThinkingLevel.XHIGH },
           systemInstruction: `Je bent de strikte brongestuurde leerstof-analist van StudyFlow.
 ABSOLUTE REGELS (GEEN ENKELE UITZONDERING):
-1. Gebruik UITSLUITEND informatie die letterlijk of aantoonbaar afleidbaar in de aangeleverde bronnen staat.
+1. Gebruik UITSLUITEND informatie die letterlijk of aantoonbaar afleidbaar in het Fase 1-dossier en de aangeleverde bronnen staat.
 2. Gebruik NOOIT algemene schoolkennis, internetfeiten, verzonnen rekensommen, verzonnen detectivescripts of externe voorbeelden.
 3. Als een onderdeel (zoals sortRounds of puzzles) niet genoeg materiaal in de bron heeft, lever dan een kortere lijst of [] aan in plaats van iets te verzinnen.
 4. Vermijd dubbele of vrijwel identieke vragen en begrippen.
@@ -629,16 +712,25 @@ ABSOLUTE REGELS (GEEN ENKELE UITZONDERING):
         return found || allowedTitles[0];
       };
 
-      // Deduplicate & normalize topics
-      const topics: AnalyzedTopic[] = (raw.topics || [])
-        .filter((t) => t.name?.trim())
-        .slice(0, 12)
-        .map((t) => ({
-          name: t.name.trim(),
-          sourceTitle: matchSourceTitle(t.sourceTitle),
-          sourceSection: (t.sourceSection || "Brontekst").trim(),
-          factCount: Math.max(1, Number(t.factCount) || 1),
-        }));
+      // Deduplicate & normalize topics (merge Phase 1 full-document topics with Phase 2)
+      const topicMap = new Map<string, AnalyzedTopic>();
+      for (const t of dossier.topics) {
+        topicMap.set(`${t.sourceTitle.toLowerCase()}::${t.name.toLowerCase()}`, t);
+      }
+      for (const t of raw.topics || []) {
+        if (!t.name?.trim()) continue;
+        const srcTitle = matchSourceTitle(t.sourceTitle);
+        const key = `${srcTitle.toLowerCase()}::${t.name.trim().toLowerCase()}`;
+        if (!topicMap.has(key)) {
+          topicMap.set(key, {
+            name: t.name.trim(),
+            sourceTitle: srcTitle,
+            sourceSection: (t.sourceSection || "Brontekst").trim(),
+            factCount: Math.max(1, Number(t.factCount) || 1),
+          });
+        }
+      }
+      const topics: AnalyzedTopic[] = Array.from(topicMap.values()).slice(0, 20);
 
       // Populate per-file topic tags
       for (const fsEntry of fileStatuses) {
@@ -648,10 +740,10 @@ ABSOLUTE REGELS (GEEN ENKELE UITZONDERING):
           .map((t) => t.name);
       }
 
-      // Deduplicate concepts
+      // Deduplicate concepts (combine Phase 2 + full-coverage Phase 1 dossier concepts)
       const seenTerms = new Set<string>();
       const concepts: GroundedConcept[] = [];
-      for (const c of raw.concepts || []) {
+      for (const c of [...(raw.concepts || []), ...dossier.concepts]) {
         const term = (c.term || "").trim();
         const def = (c.definition || "").trim();
         const norm = term.toLowerCase();
@@ -665,6 +757,7 @@ ABSOLUTE REGELS (GEEN ENKELE UITZONDERING):
           sourceTitle: matchSourceTitle(c.sourceTitle),
           sourceSection: (c.sourceSection || "Brontekst").trim(),
         });
+        if (concepts.length >= 24) break;
       }
 
       // Deduplicate questions
@@ -778,6 +871,8 @@ ABSOLUTE REGELS (GEEN ENKELE UITZONDERING):
 
   // 4. AI Leerspelletjes Generator (Strikt op basis van opgegeven tekst)
   app.post("/api/ai/game", async (req, res) => {
+    const user = await requireAiAccess(req, res);
+    if (!user) return;
     try {
       const { title, subject, content, count } = req.body as {
         title?: string;
@@ -793,18 +888,38 @@ ABSOLUTE REGELS (GEEN ENKELE UITZONDERING):
       const targetCount = Math.min(Math.max(Number(count) || 8, 4), 15);
       const pairCount = Math.min(Math.max(targetCount, 8), 12);
 
-      const response = await ai.models.generateContent({
+      const cleanGameContent = content.trim();
+      let gameSource = cleanGameContent.slice(0, 50000);
+      if (cleanGameContent.length > 50000) {
+        const dossier = await deepAnalyzer.buildFullStudyDossier({
+          modelName: MODEL_NAME,
+          files: [
+            {
+              id: "game_src",
+              title: title || "Leerstof",
+              type: "txt",
+              subject: subject || "Algemeen",
+              content: cleanGameContent.slice(0, 250000),
+            },
+          ],
+          includeCategoryHints: false,
+        });
+        gameSource = `FASE 1 — VOLLEDIG KENNISDOSSIER:\n${dossier.formattedFactDigest}\n\nFRAGMENT BEGIN:\n${cleanGameContent.slice(0, 15000)}\n\nFRAGMENT EINDE:\n${cleanGameContent.slice(-10000)}`;
+      }
+
+      const response = await generateContentWithFailover({
         model: MODEL_NAME,
         contents: `Onderwerp: ${title || "Leerstof"} (${subject || "Algemeen"})
-Aantal items per speltype: maximaal ${targetCount} flashcards, ${pairCount} memory-paren en ${targetCount} meerkeuzevragen (alleen zoveel als de brontekst ondersteunt).
-Brontekst:
-${content.slice(0, 60000)}
+Aantal items per speltype: maximaal ${targetCount} flashcards, ${pairCount} memory-paren en ${targetCount} meerkeuzevragen (alleen zoveel als de brontekst ondersteunt, evenwichtig verdeeld over de hele stof).
+Brontekst / geanalyseerd dossier:
+${gameSource}
 
 Zet UITSLUITEND deze brontekst om in speelbare Nederlandse speldata zonder externe feiten:
 1. flashcards: korte vraag/begrip op voorkant, helder antwoord op achterkant.
 2. pairs: beknopte begrippen (1 tot 3 woorden, max 40 tekens) en definities (max 100 tekens) uit de tekst.
 3. questions: unieke meerkeuzevragen met precies 4 opties, correctIndex (0 t/m 3), en uitleg uit de tekst.`,
         config: {
+          thinkingConfig: { thinkingLevel: ThinkingLevel.XHIGH },
           systemInstruction:
             "Je bent een educatieve game-ontwerper voor StudyFlow. STRIKTE REGEL: Gebruik UITSLUITEND informatie die aantoonbaar in de aangeleverde brontekst staat. Gebruik geen algemene kennis of internetfeiten.",
           responseMimeType: "application/json",
@@ -866,6 +981,8 @@ Zet UITSLUITEND deze brontekst om in speelbare Nederlandse speldata zonder exter
 
   // 5. AI Studie-Notebook (Bron-gebaseerde Chat)
   app.post("/api/ai/notebook", async (req, res) => {
+    const user = await requireAiAccess(req, res);
+    if (!user) return;
     try {
       const { sources, messages, prompt } = req.body as {
         sources: Array<{ title: string; subject: string; content: string }>;
@@ -880,11 +997,17 @@ Zet UITSLUITEND deze brontekst om in speelbare Nederlandse speldata zonder exter
         return res.status(400).json({ error: "Stel eerst een vraag." });
       }
 
+      const perNotebookSourceBudget = Math.max(12000, Math.floor(90000 / sources.length));
       const sourceBlock = sources
-        .map(
-          (s, idx) =>
-            `[BRON ${idx + 1}: ${s.title}${s.subject ? ` (${s.subject})` : ""}]\n${(s.content || "(Leeg document)").slice(0, 25000)}`
-        )
+        .map((s, idx) => {
+          const text = deepAnalyzer.extractRelevantSourceWindow(
+            s.content || "(Leeg document)",
+            "",
+            prompt,
+            perNotebookSourceBudget
+          );
+          return `[BRON ${idx + 1}: ${s.title}${s.subject ? ` (${s.subject})` : ""}]\n${text}`;
+        })
         .join("\n\n---\n\n");
 
       const historyBlock = (messages || [])
@@ -892,7 +1015,7 @@ Zet UITSLUITEND deze brontekst om in speelbare Nederlandse speldata zonder exter
         .map((m) => `${m.role === "user" ? "Leerling" : "StudyFlow Assistent"}: ${m.text}`)
         .join("\n");
 
-      const response = await ai.models.generateContent({
+      const response = await generateContentWithFailover({
         model: MODEL_NAME,
         contents: `GESELECTEERDE BRONNEN:
 ${sourceBlock}
@@ -903,6 +1026,7 @@ ${historyBlock || "(Nieuw gesprek)"}
 NIEUWE VRAAG VAN DE LEERLING:
 ${prompt}`,
         config: {
+          thinkingConfig: { thinkingLevel: ThinkingLevel.XHIGH },
           systemInstruction: `Je bent de StudyFlow Studie-Notebook assistent.
 STRIKTE REGEL: Beantwoord vragen UITSLUITEND op basis van de aangeleverde GESELECTEERDE BRONNEN.
 - Gebruik geen externe kennis als iets niet in de bronnen staat.
@@ -1120,7 +1244,7 @@ STRIKTE REGEL: Beantwoord vragen UITSLUITEND op basis van de aangeleverde GESELE
   });
 
   app.post("/api/practice/selections", async (req, res) => {
-    const user = await requireAuth(req, res, { forbidAnonymous: true });
+    const user = await requireAiAccess(req, res);
     if (!user) return;
     try {
       const { id, name, subject, selectedFolderIds, selectedItemIds, files } = req.body as {
@@ -1137,8 +1261,7 @@ STRIKTE REGEL: Beantwoord vragen UITSLUITEND op basis van de aangeleverde GESELE
       }
 
       const bundle = practiceAi.prepareSourceBundle(files);
-      const { topics, warnings } = await practiceAi.analyzePracticeTopics({
-        ai,
+      const { topics, dossierSummary, warnings } = await practiceAi.analyzePracticeTopics({
         modelName: MODEL_NAME,
         bundle,
       });
@@ -1159,6 +1282,7 @@ STRIKTE REGEL: Beantwoord vragen UITSLUITEND op basis van de aangeleverde GESELE
         fileStatuses: bundle.fileStatuses,
         topics,
         warnings,
+        dossierSummary,
       });
 
       return res.json(saved);
@@ -1175,7 +1299,7 @@ STRIKTE REGEL: Beantwoord vragen UITSLUITEND op basis van de aangeleverde GESELE
   });
 
   app.post("/api/practice/sessions", async (req, res) => {
-    const user = await requireAuth(req, res, { forbidAnonymous: true });
+    const user = await requireAiAccess(req, res);
     if (!user) return;
     try {
       const {
@@ -1186,6 +1310,7 @@ STRIKTE REGEL: Beantwoord vragen UITSLUITEND op basis van de aangeleverde GESELE
         focusTopic,
         settings: rawSettings,
         topics: providedTopics,
+        dossierSummary: providedDossierSummary,
         files,
       } = req.body as {
         selectionId?: string;
@@ -1195,6 +1320,7 @@ STRIKTE REGEL: Beantwoord vragen UITSLUITEND op basis van de aangeleverde GESELE
         focusTopic?: string;
         settings?: Partial<PracticeUserSettings>;
         topics?: AnalyzedTopic[];
+        dossierSummary?: string;
         files: practiceAi.RawPracticeFileInput[];
       };
 
@@ -1214,13 +1340,14 @@ STRIKTE REGEL: Beantwoord vragen UITSLUITEND op basis van de aangeleverde GESELE
 
       const cleanSubject = (subject || "").trim() || bundle.detectedSubject;
       let topics = Array.isArray(providedTopics) ? providedTopics : [];
-      if (topics.length === 0) {
+      let dossierSummary = (providedDossierSummary || "").trim();
+      if (topics.length === 0 || !dossierSummary) {
         const analyzed = await practiceAi.analyzePracticeTopics({
-          ai,
           modelName: MODEL_NAME,
           bundle,
         });
-        topics = analyzed.topics;
+        if (topics.length === 0) topics = analyzed.topics;
+        if (!dossierSummary) dossierSummary = analyzed.dossierSummary;
       }
 
       const safeMode: PracticeMode =
@@ -1242,7 +1369,6 @@ STRIKTE REGEL: Beantwoord vragen UITSLUITEND op basis van de aangeleverde GESELE
       });
 
       const generated = await practiceAi.generatePracticeQuestions({
-        ai,
         modelName: MODEL_NAME,
         bundle,
         subject: cleanSubject,
@@ -1250,6 +1376,7 @@ STRIKTE REGEL: Beantwoord vragen UITSLUITEND op basis van de aangeleverde GESELE
         focusTopic,
         settings: cleanSettings,
         plan,
+        dossierSummary,
       });
 
       if (generated.questions.length === 0) {
@@ -1262,7 +1389,7 @@ STRIKTE REGEL: Beantwoord vragen UITSLUITEND op basis van de aangeleverde GESELE
 
       const sourceTexts: Record<string, string> = {};
       for (const rf of bundle.readableFiles) {
-        sourceTexts[rf.title] = rf.content.slice(0, 30000);
+        sourceTexts[rf.title] = rf.content.slice(0, 250000);
       }
 
       const now = Date.now();
@@ -1321,7 +1448,7 @@ STRIKTE REGEL: Beantwoord vragen UITSLUITEND op basis van de aangeleverde GESELE
   });
 
   app.post("/api/practice/sessions/:sessionId/answer", async (req, res) => {
-    const user = await requireAuth(req, res, { forbidAnonymous: true });
+    const user = await requireAiAccess(req, res);
     if (!user) return;
     try {
       const sessionId = String(req.params.sessionId || "");
@@ -1348,7 +1475,6 @@ STRIKTE REGEL: Beantwoord vragen UITSLUITEND op basis van de aangeleverde GESELE
           question.evidenceQuote ||
           question.referenceAnswer;
         feedback = await practiceAi.gradeOpenPracticeAnswer({
-          ai,
           modelName: MODEL_NAME,
           question,
           typedAnswer: typedAnswer || "",
@@ -1368,7 +1494,7 @@ STRIKTE REGEL: Beantwoord vragen UITSLUITEND op basis van de aangeleverde GESELE
   });
 
   app.post("/api/practice/sessions/:sessionId/submit-exam", async (req, res) => {
-    const user = await requireAuth(req, res, { forbidAnonymous: true });
+    const user = await requireAiAccess(req, res);
     if (!user) return;
     try {
       const sessionId = String(req.params.sessionId || "");
@@ -1396,7 +1522,6 @@ STRIKTE REGEL: Beantwoord vragen UITSLUITEND op basis van de aangeleverde GESELE
             question.evidenceQuote ||
             question.referenceAnswer;
           const fb = await practiceAi.gradeOpenPracticeAnswer({
-            ai,
             modelName: MODEL_NAME,
             question,
             typedAnswer: entry.typedAnswer || "",
@@ -1422,6 +1547,73 @@ STRIKTE REGEL: Beantwoord vragen UITSLUITEND op basis van de aangeleverde GESELE
     if (!user) return;
     practiceStore.deletePracticeSession(user.uid, String(req.params.sessionId || ""));
     return res.json({ dashboard: practiceStore.getPracticeDashboardState(user.uid) });
+  });
+
+  // =========================================================================
+  // 8. DESKTOP OEFENHERINNERINGEN (strikt per ingelogde gebruiker)
+  // =========================================================================
+  app.get("/api/reminders", async (req, res) => {
+    const user = await requireAuth(req, res, { forbidAnonymous: true });
+    if (!user) return;
+    return res.json(reminderStore.getReminderState(user.uid));
+  });
+
+  app.put("/api/reminders/settings", async (req, res) => {
+    const user = await requireAuth(req, res, { forbidAnonymous: true });
+    if (!user) return;
+    const state = reminderStore.updateReminderSettings(
+      user.uid,
+      (req.body || {}) as Record<string, unknown>
+    );
+    return res.json(state);
+  });
+
+  app.put("/api/reminders/tasks/:taskId", async (req, res) => {
+    const user = await requireAuth(req, res, { forbidAnonymous: true });
+    if (!user) return;
+    try {
+      const taskId = String(req.params.taskId || "");
+      const body = (req.body || {}) as { time?: string; enabled?: boolean; remove?: boolean };
+      const state = reminderStore.setTaskReminder(user.uid, taskId, body);
+      return res.json(state);
+    } catch (err) {
+      return res.status(400).json({
+        error: err instanceof Error ? err.message : "Kon taakherinnering niet opslaan.",
+      });
+    }
+  });
+
+  app.post("/api/reminders/fired", async (req, res) => {
+    const user = await requireAuth(req, res, { forbidAnonymous: true });
+    if (!user) return;
+    const { key, timestampMs } = (req.body || {}) as { key?: string; timestampMs?: number };
+    const state = reminderStore.markReminderFired(user.uid, key || "", timestampMs);
+    return res.json(state);
+  });
+
+  // =========================================================================
+  // 9. LEERSTOF IMPORTEREN UIT YOUTUBE- OF WEBSITELINK
+  // =========================================================================
+  app.post("/api/materials/import-url", async (req, res) => {
+    const user = await requireAuth(req, res, { forbidAnonymous: true });
+    if (!user) return;
+    try {
+      const { url } = (req.body || {}) as { url?: string };
+      if (!url || typeof url !== "string") {
+        return res.status(400).json({ error: "Geef een geldige YouTube- of website-link op." });
+      }
+      const imported = await importStudyMaterialFromUrl(url, {
+        allowAiFallback: isAiAllowedUser(user),
+      });
+      return res.json(imported);
+    } catch (err) {
+      return res.status(400).json({
+        error:
+          err instanceof Error
+            ? err.message
+            : "Kon de inhoud van deze link niet uitlezen.",
+      });
+    }
   });
 
   // Mount Vite in development or serve built static files in production

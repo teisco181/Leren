@@ -4,6 +4,7 @@ export interface DetectedPlatform {
   iconName: string;
   color: string;
   defaultSubject: string;
+  defaultDescription: string;
 }
 
 export function detectExternalToolFromUrl(rawUrl: string): DetectedPlatform {
@@ -15,6 +16,7 @@ export function detectExternalToolFromUrl(rawUrl: string): DetectedPlatform {
       iconName: 'Globe',
       color: '#4F46E5',
       defaultSubject: '',
+      defaultDescription: '',
     };
   }
 
@@ -33,6 +35,7 @@ export function detectExternalToolFromUrl(rawUrl: string): DetectedPlatform {
       iconName: 'Youtube',
       color: '#DC2626',
       defaultSubject: "Uitlegvideo's",
+      defaultDescription: 'Uitlegvideo’s, colleges en samenvattingen bekijken.',
     };
   }
 
@@ -43,6 +46,7 @@ export function detectExternalToolFromUrl(rawUrl: string): DetectedPlatform {
       iconName: 'BookOpen',
       color: '#2563EB',
       defaultSubject: 'Woordjes & Toetsen',
+      defaultDescription: 'Woordjes, definities en oefentoetsen stampen.',
     };
   }
 
@@ -53,6 +57,7 @@ export function detectExternalToolFromUrl(rawUrl: string): DetectedPlatform {
       iconName: 'Layers',
       color: '#6D28D9',
       defaultSubject: 'Flashcards',
+      defaultDescription: 'Begrippen oefenen met flashcards en studeer-sets.',
     };
   }
 
@@ -63,6 +68,7 @@ export function detectExternalToolFromUrl(rawUrl: string): DetectedPlatform {
       iconName: 'Tv',
       color: '#991B1B',
       defaultSubject: 'Documentaires & Talen',
+      defaultDescription: 'Documentaires en luistervaardigheid voor talen.',
     };
   }
 
@@ -73,6 +79,7 @@ export function detectExternalToolFromUrl(rawUrl: string): DetectedPlatform {
       iconName: 'Zap',
       color: '#16A34A',
       defaultSubject: 'Live Quiz Games',
+      defaultDescription: 'Interactieve quizspellen om stof snel te herhalen.',
     };
   }
 
@@ -87,5 +94,6 @@ export function detectExternalToolFromUrl(rawUrl: string): DetectedPlatform {
     iconName: 'Globe',
     color: '#4F46E5',
     defaultSubject: '',
+    defaultDescription: '',
   };
 }

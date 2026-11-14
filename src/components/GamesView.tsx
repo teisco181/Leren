@@ -66,6 +66,7 @@ interface GamesViewProps {
   studySets: StudySet[];
   soloSessions: SoloGameSession[];
   loading: boolean;
+  aiEnabled?: boolean;
   onOpenJoinModal: () => void;
 }
 
@@ -146,6 +147,7 @@ export const GamesView: React.FC<GamesViewProps> = ({
   studySets,
   soloSessions,
   loading,
+  aiEnabled = false,
   onOpenJoinModal,
 }) => {
   const [hubTab, setHubTab] = useState<'singleplayer' | 'multiplayer'>('singleplayer');
@@ -506,6 +508,7 @@ export const GamesView: React.FC<GamesViewProps> = ({
           userName={userName}
           folders={folders}
           items={items}
+          aiEnabled={aiEnabled}
           onOpenJoinModal={onOpenJoinModal}
         />
       ) : (
@@ -890,58 +893,60 @@ export const GamesView: React.FC<GamesViewProps> = ({
             </section>
           )}
 
-          {/* Mandatory Material Selector */}
-          <section className="space-y-3">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <h2 className="text-base font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
-                  <ShieldCheck className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
-                  <span>Stap 1: Selecteer &amp; controleer jouw leerstof (verplicht)</span>
-                </h2>
-                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                  Elk spel hieronder gebruikt uitsluitend wat je hier selecteert en analyseert. Er worden nooit feiten buiten deze bronnen gebruikt.
-                </p>
+          {/* Mandatory Material Selector (only when AI material analysis is enabled) */}
+          {aiEnabled && (
+            <section className="space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h2 className="text-base font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                    <ShieldCheck className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+                    <span>Stap 1: Selecteer &amp; controleer jouw leerstof (verplicht)</span>
+                  </h2>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                    Elk spel hieronder gebruikt uitsluitend wat je hier selecteert en analyseert. Er worden nooit feiten buiten deze bronnen gebruikt.
+                  </p>
+                </div>
+
+                {analyzedMaterial && analyzedMaterial.concepts.length + analyzedMaterial.questions.length > 0 && (
+                  <button
+                    type="button"
+                    disabled={savingSet}
+                    onClick={handleSaveAsStudySet}
+                    className="px-3.5 py-2 rounded-xl border border-indigo-200 dark:border-indigo-800 bg-indigo-50/70 dark:bg-indigo-950/30 text-indigo-700 dark:text-indigo-300 text-xs font-semibold inline-flex items-center gap-1.5 hover:bg-indigo-100 dark:hover:bg-indigo-950/50 disabled:opacity-60"
+                  >
+                    <BookmarkPlus className="w-4 h-4" />
+                    <span>{savingSet ? 'Opslaan...' : 'Bewaar als oefenset'}</span>
+                  </button>
+                )}
               </div>
 
-              {analyzedMaterial && analyzedMaterial.concepts.length + analyzedMaterial.questions.length > 0 && (
-                <button
-                  type="button"
-                  disabled={savingSet}
-                  onClick={handleSaveAsStudySet}
-                  className="px-3.5 py-2 rounded-xl border border-indigo-200 dark:border-indigo-800 bg-indigo-50/70 dark:bg-indigo-950/30 text-indigo-700 dark:text-indigo-300 text-xs font-semibold inline-flex items-center gap-1.5 hover:bg-indigo-100 dark:hover:bg-indigo-950/50 disabled:opacity-60"
-                >
-                  <BookmarkPlus className="w-4 h-4" />
-                  <span>{savingSet ? 'Opslaan...' : 'Bewaar als oefenset'}</span>
-                </button>
+              {saveNotice && (
+                <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900 text-xs text-emerald-800 dark:text-emerald-300 flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 shrink-0" />
+                  <span>{saveNotice}</span>
+                </div>
               )}
-            </div>
 
-            {saveNotice && (
-              <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900 text-xs text-emerald-800 dark:text-emerald-300 flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4 shrink-0" />
-                <span>{saveNotice}</span>
-              </div>
-            )}
+              {launchError && (
+                <div className="p-3.5 rounded-xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 text-xs text-red-700 dark:text-red-300 flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4 shrink-0" />
+                  <span>{launchError}</span>
+                </div>
+              )}
 
-            {launchError && (
-              <div className="p-3.5 rounded-xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 text-xs text-red-700 dark:text-red-300 flex items-center gap-2">
-                <AlertTriangle className="w-4 h-4 shrink-0" />
-                <span>{launchError}</span>
-              </div>
-            )}
-
-            <MaterialSelector
-              folders={folders}
-              items={items}
-              initialMaterial={analyzedMaterial}
-              onAnalyzed={(m) => {
-                setAnalyzedMaterial(m);
-                setLaunchError(null);
-                setSaveNotice(null);
-                if (m) setSelectedSavedSetId(null);
-              }}
-            />
-          </section>
+              <MaterialSelector
+                folders={folders}
+                items={items}
+                initialMaterial={analyzedMaterial}
+                onAnalyzed={(m) => {
+                  setAnalyzedMaterial(m);
+                  setLaunchError(null);
+                  setSaveNotice(null);
+                  if (m) setSelectedSavedSetId(null);
+                }}
+              />
+            </section>
+          )}
 
           {/* Saved Personal Solo Game Sessions + Saved StudySets */}
           {(soloSessions.length > 0 || studySets.length > 0) && (
@@ -1115,7 +1120,9 @@ export const GamesView: React.FC<GamesViewProps> = ({
                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                   {readyMaterial
                     ? `Geselecteerde leerstof: "${readyMaterial.title}" · Eindcijfer 1 t/m 10`
-                    : 'Selecteer en analyseer eerst leerstof in Stap 1 hierboven om een spel vrij te spelen.'}
+                    : aiEnabled
+                      ? 'Selecteer en analyseer eerst leerstof in Stap 1 hierboven om een spel vrij te spelen.'
+                      : 'Kies een bewaarde oefenset hierboven of doe mee via een multiplayer gamecode.'}
                 </p>
               </div>
             </div>
@@ -1128,7 +1135,9 @@ export const GamesView: React.FC<GamesViewProps> = ({
                   ? checkSoloGameSufficiency(g.id, readyMaterial)
                   : {
                       ok: false,
-                      reason: 'Selecteer en controleer eerst jouw leerstof in Stap 1.',
+                      reason: aiEnabled
+                        ? 'Selecteer en controleer eerst jouw leerstof in Stap 1.'
+                        : 'Kies eerst een bewaarde oefenset.',
                     };
 
                 return (
@@ -1176,7 +1185,7 @@ export const GamesView: React.FC<GamesViewProps> = ({
                       className={`w-full py-2.5 px-4 rounded-xl ${g.theme.accentBg} ${g.theme.accentHover} text-white text-xs font-semibold inline-flex items-center justify-center gap-2 transition-colors disabled:opacity-45 disabled:cursor-not-allowed`}
                     >
                       <Play className="w-3.5 h-3.5 fill-current" />
-                      <span>{check.ok ? 'Start spel' : 'Eerst leerstof kiezen'}</span>
+                      <span>{check.ok ? 'Start spel' : 'Eerst oefenset kiezen'}</span>
                     </button>
                   </div>
                 );
@@ -1197,7 +1206,9 @@ export const GamesView: React.FC<GamesViewProps> = ({
                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                   {readyMaterial
                     ? `Actieve leerstof: ${readyMaterial.title} (${readyMaterial.subject}). Alle vragen en woorden komen uitsluitend uit jouw selectie.`
-                    : 'Selecteer en analyseer hierboven eerst leerstof (of kies een bewaarde oefenset) om deze 23 spellen te spelen.'}
+                    : aiEnabled
+                      ? 'Selecteer en analyseer hierboven eerst leerstof (of kies een bewaarde oefenset) om deze 23 spellen te spelen.'
+                      : 'Kies een bewaarde oefenset om deze spellen te spelen.'}
                 </p>
               </div>
             </div>

@@ -25,9 +25,17 @@ async function parseJsonResponse<T>(res: Response): Promise<T> {
 }
 
 export async function postAiJson<T>(endpoint: string, payload: unknown): Promise<T> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  const token = await getAuthToken();
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  } else {
+    throw new Error('Je bent niet ingelogd.');
+  }
+
   const res = await fetch(endpoint, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     body: JSON.stringify(payload),
   });
   return parseJsonResponse<T>(res);

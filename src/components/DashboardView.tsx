@@ -1,5 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import {
+  Bell,
+  BellOff,
   Calendar,
   CheckCircle2,
   ChevronLeft,
@@ -11,7 +13,11 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
-import { ScheduleTask } from '../types';
+import type {
+  DesktopReminderSettings,
+  ScheduleTask,
+  TaskReminderEntry,
+} from '../types';
 import {
   createManyScheduleTasks,
   createScheduleTask,
@@ -20,13 +26,32 @@ import {
 } from '../lib/studyStore';
 import { ConfirmModal } from './ConfirmModal';
 import { DashboardSkeleton } from './Skeletons';
+import { DesktopRemindersPanel } from './DesktopRemindersPanel';
 import { postAiJson } from '../lib/apiClient';
+import type { DesktopNotificationPermissionState } from '../lib/desktopNotifications';
+
+interface DashboardDesktopRemindersBridge {
+  settings: DesktopReminderSettings;
+  taskReminders: Record<string, TaskReminderEntry>;
+  permission: DesktopNotificationPermissionState;
+  inIframe: boolean;
+  iframeNotice: boolean;
+  requestPermission: () => Promise<unknown>;
+  updateSettings: (partial: Partial<DesktopReminderSettings>) => Promise<void>;
+  updateTaskReminder: (
+    taskId: string,
+    payload: { time?: string; enabled?: boolean; remove?: boolean }
+  ) => Promise<void>;
+  sendTestReminder: () => Promise<void>;
+}
 
 interface DashboardViewProps {
   userId: string;
   userName: string;
   tasks: ScheduleTask[];
   loading: boolean;
+  aiEnabled?: boolean;
+  desktopReminders?: DashboardDesktopRemindersBridge;
   onNavigateSection: (section: 'files' | 'summaries' | 'games' | 'notebook') => void;
 }
 
@@ -54,6 +79,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   userName,
   tasks,
   loading,
+  aiEnabled = false,
+  desktopReminders,
   onNavigateSection,
 }) => {
   const todayStr = useMemo(() => toDateStr(new Date()), []);
@@ -67,6 +94,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const [taskDate, setTaskDate] = useState(todayStr);
   const [taskMinutes, setTaskMinutes] = useState(30);
   const [taskNotes, setTaskNotes] = useState('');
+  const [taskReminderTime, setTaskReminderTime] = useState('');
   const [savingTask, setSavingTask] = useState(false);
 
   // AI Generator Modal
@@ -129,16 +157,23 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     if (!taskTitle.trim()) return;
     setSavingTask(true);
     try {
-      await createScheduleTask(userId, {
+      const createdId = await createScheduleTask(userId, {
         title: taskTitle,
         subject: taskSubject || 'Algemeen',
         date: taskDate,
         durationMinutes: taskMinutes,
         notes: taskNotes,
       });
+      if (desktopReminders && taskReminderTime) {
+        await desktopReminders.updateTaskReminder(createdId, {
+          time: taskReminderTime,
+          enabled: true,
+        });
+      }
       setSelectedDate(taskDate);
       setTaskTitle('');
       setTaskNotes('');
+      setTaskReminderTime('');
       setShowAddModal(false);
     } finally {
       setSavingTask(false);
@@ -205,24 +240,30 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
 
         <div className="flex items-center gap-2.5 flex-wrap">
-          <button
-            type="button"
-            onClick={() => {
-              setAiError(null);
-              setShowAiModal(true);
-            }}
-            className="px-4 py-2 rounded-lg text-sm font-medium bg-indigo-600 hover:bg-indigo-700 text-white transition-colors flex items-center gap-2 whitespace-nowrap shrink-0"
-          >
-            <Sparkles className="w-4 h-4" />
-            <span>AI Schema Generator</span>
-          </button>
+          {aiEnabled && (
+            <button
+              type="button"
+              onClick={() => {
+                setAiError(null);
+                setShowAiModal(true);
+              }}
+              className="px-4 py-2 rounded-lg text-sm font-medium bg-indigo-600 hover:bg-indigo-700 text-white transition-colors flex items-center gap-2 whitespace-nowrap shrink-0"
+            >
+              <Sparkles className="w-4 h-4" />
+              <span>AI Schema Generator</span>
+            </button>
+          )}
           <button
             type="button"
             onClick={() => {
               setTaskDate(selectedDate);
               setShowAddModal(true);
             }}
-            className="px-4 py-2 rounded-lg text-sm font-medium bg-white dark:bg-[#111827] border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors flex items-center gap-2 whitespace-nowrap shrink-0"
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2 whitespace-nowrap shrink-0 ${
+              aiEnabled
+                ? 'bg-white dark:bg-[#111827] border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800'
+                : 'bg-indigo-600 hover:bg-indigo-700 text-white'
+            }`}
           >
             <Plus className="w-4 h-4" />
             <span>Taak plannen</span>
@@ -344,8 +385,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 .
               </p>
               <p className="text-xs text-slate-500 dark:text-slate-400 max-w-md mx-auto">
-                Voeg handmatig een leersessie toe of laat de AI Schema Generator automatisch een
-                gespreid leerplan maken tot je toets.
+                {aiEnabled
+                  ? 'Voeg handmatig een leersessie toe of laat de AI Schema Generator automatisch een gespreid leerplan maken tot je toets.'
+                  : 'Voeg handmatig een leersessie toe en houd je toetsplanning overzichtelijk bij.'}
               </p>
               <div className="pt-2 flex items-center justify-center gap-3">
                 <button
@@ -400,10 +442,19 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                           <Clock className="w-3 h-3" />
                           {task.durationMinutes} min
                         </span>
-                        {task.isAiGenerated && (
+                        {aiEnabled && task.isAiGenerated && (
                           <>
                             <span aria-hidden="true">·</span>
                             <span className="text-indigo-600 dark:text-indigo-400">AI-plan</span>
+                          </>
+                        )}
+                        {desktopReminders?.taskReminders[task.id]?.enabled && (
+                          <>
+                            <span aria-hidden="true">·</span>
+                            <span className="inline-flex items-center gap-1 tabular-nums text-indigo-600 dark:text-indigo-400">
+                              <Bell className="w-3 h-3" />
+                              Melding {desktopReminders.taskReminders[task.id].time}
+                            </span>
                           </>
                         )}
                       </div>
@@ -415,20 +466,73 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     </div>
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={() => setDeleteTarget(task)}
-                    className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors shrink-0"
-                    aria-label="Taak verwijderen"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
+                  <div className="flex items-center gap-1 shrink-0">
+                    {desktopReminders && !task.completed && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const existing = desktopReminders.taskReminders[task.id];
+                          desktopReminders.updateTaskReminder(task.id, {
+                            time: existing?.time || desktopReminders.settings.dailyTime,
+                            enabled: !existing?.enabled,
+                          });
+                        }}
+                        className={`p-1.5 rounded-lg transition-colors shrink-0 ${
+                          desktopReminders.taskReminders[task.id]?.enabled
+                            ? 'text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/60'
+                            : 'text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-slate-100 dark:hover:bg-slate-800'
+                        }`}
+                        aria-label={
+                          desktopReminders.taskReminders[task.id]?.enabled
+                            ? 'Desktopherinnering uitschakelen'
+                            : 'Desktopherinnering instellen'
+                        }
+                        title={
+                          desktopReminders.taskReminders[task.id]?.enabled
+                            ? `Herinnering om ${desktopReminders.taskReminders[task.id].time} uitschakelen`
+                            : `Herinnering instellen (${desktopReminders.settings.dailyTime})`
+                        }
+                      >
+                        {desktopReminders.taskReminders[task.id]?.enabled ? (
+                          <Bell className="w-4 h-4" />
+                        ) : (
+                          <BellOff className="w-4 h-4" />
+                        )}
+                      </button>
+                    )}
+
+                    <button
+                      type="button"
+                      onClick={() => setDeleteTarget(task)}
+                      className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors shrink-0"
+                      aria-label="Taak verwijderen"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
           )}
         </div>
       </section>
+
+      {/* Desktop Practice Reminders Panel */}
+      {desktopReminders && (
+        <DesktopRemindersPanel
+          settings={desktopReminders.settings}
+          taskReminders={desktopReminders.taskReminders}
+          tasks={tasks}
+          todayStr={todayStr}
+          permission={desktopReminders.permission}
+          inIframe={desktopReminders.inIframe}
+          iframeNotice={desktopReminders.iframeNotice}
+          onRequestPermission={desktopReminders.requestPermission}
+          onUpdateSettings={desktopReminders.updateSettings}
+          onUpdateTaskReminder={desktopReminders.updateTaskReminder}
+          onSendTestReminder={desktopReminders.sendTestReminder}
+        />
+      )}
 
       {/* Quick Study Shortcuts */}
       <section className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -451,10 +555,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           className="text-left p-5 rounded-xl bg-white dark:bg-[#111827] border border-slate-200 dark:border-slate-800 hover:border-indigo-400 dark:hover:border-indigo-500 transition-colors"
         >
           <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-            AI Samenvattingen
+            {aiEnabled ? 'AI Samenvattingen' : 'Samenvattingen'}
           </h3>
           <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-            Zet leerstof om in kernbegrippen en zelftestvragen per vak.
+            {aiEnabled
+              ? 'Zet leerstof om in kernbegrippen en zelftestvragen per vak.'
+              : 'Schrijf en orden je samenvattingen en begrippen per vak.'}
           </p>
         </button>
 
@@ -532,17 +638,30 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 </div>
               </div>
 
-              <div>
-                <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-                  Datum
-                </label>
-                <input
-                  type="date"
-                  required
-                  value={taskDate}
-                  onChange={(e) => setTaskDate(e.target.value)}
-                  className="w-full px-3.5 py-2 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
-                />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
+                    Datum
+                  </label>
+                  <input
+                    type="date"
+                    required
+                    value={taskDate}
+                    onChange={(e) => setTaskDate(e.target.value)}
+                    className="w-full px-3.5 py-2 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
+                    Desktopherinnering (optioneel)
+                  </label>
+                  <input
+                    type="time"
+                    value={taskReminderTime}
+                    onChange={(e) => setTaskReminderTime(e.target.value)}
+                    className="w-full px-3.5 py-2 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
+                  />
+                </div>
               </div>
 
               <div>
@@ -580,7 +699,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       )}
 
       {/* AI Schedule Generator Modal */}
-      {showAiModal && (
+      {aiEnabled && showAiModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs">
           <div className="w-full max-w-lg rounded-2xl bg-white dark:bg-[#111827] border border-slate-200 dark:border-slate-800 p-6">
             <div className="flex items-center justify-between">
@@ -700,6 +819,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           setDeleting(true);
           try {
             await deleteScheduleTask(userId, deleteTarget.id);
+            if (desktopReminders) {
+              await desktopReminders.updateTaskReminder(deleteTarget.id, { remove: true });
+            }
             setDeleteTarget(null);
           } finally {
             setDeleting(false);

@@ -22,6 +22,7 @@ import {
   StudySet,
   SoloGameSession,
   ExternalTool,
+  ToolFolder,
   GameRoom,
   GamePlayer,
   MultiplayerMode,
@@ -153,7 +154,34 @@ export function subscribeExternalTools(
     q,
     (snap) => {
       const list = snap.docs.map((d) => ({ id: d.id, ...d.data() } as ExternalTool));
-      list.sort((a, b) => getTimestampSeconds(a.createdAt) - getTimestampSeconds(b.createdAt));
+      list.sort((a, b) => {
+        const ao = typeof a.sortOrder === 'number' ? a.sortOrder : Number.MAX_SAFE_INTEGER;
+        const bo = typeof b.sortOrder === 'number' ? b.sortOrder : Number.MAX_SAFE_INTEGER;
+        if (ao !== bo) return ao - bo;
+        return getTimestampSeconds(a.createdAt) - getTimestampSeconds(b.createdAt);
+      });
+      onData(list);
+    },
+    (err) => handleFirestoreError(err, OperationType.LIST, path)
+  );
+}
+
+export function subscribeToolFolders(
+  userId: string,
+  onData: (folders: ToolFolder[]) => void
+): Unsubscribe {
+  const path = `users/${userId}/toolFolders`;
+  const q = query(collection(db, path), where('ownerId', '==', userId));
+  return onSnapshot(
+    q,
+    (snap) => {
+      const list = snap.docs.map((d) => ({ id: d.id, ...d.data() } as ToolFolder));
+      list.sort((a, b) => {
+        const ao = typeof a.sortOrder === 'number' ? a.sortOrder : Number.MAX_SAFE_INTEGER;
+        const bo = typeof b.sortOrder === 'number' ? b.sortOrder : Number.MAX_SAFE_INTEGER;
+        if (ao !== bo) return ao - bo;
+        return a.name.localeCompare(b.name, 'nl');
+      });
       onData(list);
     },
     (err) => handleFirestoreError(err, OperationType.LIST, path)
@@ -578,6 +606,11 @@ export async function seedDefaultExternalTools(userId: string): Promise<void> {
       name: 'StudyGo',
       url: 'https://studygo.com/nl/',
       subjectLabel: 'Woordjes & Toetsen',
+      description: 'Woordjes, definities en oefentoetsen stampen voor alle vakken.',
+      gradeYear: '',
+      level: 'Alle niveaus',
+      sortOrder: 0,
+      folderIds: [] as string[],
       color: '#2563EB',
       iconName: 'BookOpen',
     },
@@ -585,6 +618,11 @@ export async function seedDefaultExternalTools(userId: string): Promise<void> {
       name: 'Quizlet',
       url: 'https://quizlet.com/nl',
       subjectLabel: 'Flashcards',
+      description: 'Begrippen en vertalingen herhalen met flashcards en toetsen.',
+      gradeYear: '',
+      level: 'Alle niveaus',
+      sortOrder: 1,
+      folderIds: [] as string[],
       color: '#4F46E5',
       iconName: 'Layers',
     },
@@ -592,6 +630,11 @@ export async function seedDefaultExternalTools(userId: string): Promise<void> {
       name: 'Gimkit',
       url: 'https://www.gimkit.com/',
       subjectLabel: 'Live Quiz Games',
+      description: 'Interactieve quizspellen om leerstof klassikaal of zelf te oefenen.',
+      gradeYear: '',
+      level: 'Alle niveaus',
+      sortOrder: 2,
+      folderIds: [] as string[],
       color: '#059669',
       iconName: 'Gamepad2',
     },
@@ -620,12 +663,24 @@ export async function createExternalTool(
 ): Promise<string> {
   const id = makeId('tool');
   const path = `users/${userId}/externalTools/${id}`;
+  const cleanFolderIds = Array.isArray(input.folderIds)
+    ? Array.from(new Set(input.folderIds.map((f) => f.trim()).filter(Boolean))).slice(0, 25)
+    : [];
+  const safeSort =
+    typeof input.sortOrder === 'number' && Number.isFinite(input.sortOrder)
+      ? Math.max(0, Math.min(Math.round(input.sortOrder), 100000))
+      : 0;
   try {
     await setDoc(doc(db, path), {
       ownerId: userId,
       name: input.name.trim().slice(0, 80),
       url: input.url.trim().slice(0, 500),
       subjectLabel: input.subjectLabel.trim().slice(0, 80),
+      description: (input.description || '').trim().slice(0, 240),
+      gradeYear: (input.gradeYear || '').trim().slice(0, 40),
+      level: (input.level || '').trim().slice(0, 40),
+      sortOrder: safeSort,
+      folderIds: cleanFolderIds,
       color: input.color.slice(0, 30),
       iconName: input.iconName.slice(0, 40),
       createdAt: serverTimestamp(),
@@ -647,6 +702,17 @@ export async function updateExternalTool(
   if (updates.name !== undefined) clean.name = updates.name.trim().slice(0, 80);
   if (updates.url !== undefined) clean.url = updates.url.trim().slice(0, 500);
   if (updates.subjectLabel !== undefined) clean.subjectLabel = updates.subjectLabel.trim().slice(0, 80);
+  if (updates.description !== undefined) clean.description = updates.description.trim().slice(0, 240);
+  if (updates.gradeYear !== undefined) clean.gradeYear = updates.gradeYear.trim().slice(0, 40);
+  if (updates.level !== undefined) clean.level = updates.level.trim().slice(0, 40);
+  if (updates.sortOrder !== undefined && Number.isFinite(updates.sortOrder)) {
+    clean.sortOrder = Math.max(0, Math.min(Math.round(updates.sortOrder), 100000));
+  }
+  if (updates.folderIds !== undefined) {
+    clean.folderIds = Array.from(
+      new Set(updates.folderIds.map((f) => f.trim()).filter(Boolean))
+    ).slice(0, 25);
+  }
   if (updates.color !== undefined) clean.color = updates.color.slice(0, 30);
   if (updates.iconName !== undefined) clean.iconName = updates.iconName.slice(0, 40);
   try {
@@ -662,6 +728,117 @@ export async function deleteExternalTool(userId: string, toolId: string): Promis
     await deleteDoc(doc(db, path));
   } catch (err) {
     handleFirestoreError(err, OperationType.DELETE, path);
+  }
+}
+
+export async function reorderExternalTools(
+  userId: string,
+  orderedToolIds: string[]
+): Promise<void> {
+  const path = `users/${userId}/externalTools`;
+  if (orderedToolIds.length === 0) return;
+  try {
+    const batch = writeBatch(db);
+    orderedToolIds.forEach((id, idx) => {
+      batch.update(doc(db, path, id), {
+        sortOrder: idx,
+        updatedAt: serverTimestamp(),
+      });
+    });
+    await batch.commit();
+  } catch (err) {
+    handleFirestoreError(err, OperationType.WRITE, path);
+  }
+}
+
+// --- Tool Folders CRUD (Leertools Hub Mappen) ---
+export async function createToolFolder(
+  userId: string,
+  input: { name: string; description?: string; color?: string; sortOrder?: number }
+): Promise<string> {
+  const id = makeId('tfld');
+  const path = `users/${userId}/toolFolders/${id}`;
+  const safeSort =
+    typeof input.sortOrder === 'number' && Number.isFinite(input.sortOrder)
+      ? Math.max(0, Math.min(Math.round(input.sortOrder), 100000))
+      : 0;
+  try {
+    await setDoc(doc(db, path), {
+      ownerId: userId,
+      name: input.name.trim().slice(0, 80) || 'Nieuwe map',
+      description: (input.description || '').trim().slice(0, 240),
+      color: (input.color || '#4F46E5').slice(0, 30),
+      sortOrder: safeSort,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+    return id;
+  } catch (err) {
+    handleFirestoreError(err, OperationType.CREATE, path);
+  }
+}
+
+export async function updateToolFolder(
+  userId: string,
+  folderId: string,
+  updates: Partial<Pick<ToolFolder, 'name' | 'description' | 'color' | 'sortOrder'>>
+): Promise<void> {
+  const path = `users/${userId}/toolFolders/${folderId}`;
+  const clean: Record<string, unknown> = { updatedAt: serverTimestamp() };
+  if (updates.name !== undefined) clean.name = updates.name.trim().slice(0, 80);
+  if (updates.description !== undefined) clean.description = updates.description.trim().slice(0, 240);
+  if (updates.color !== undefined) clean.color = updates.color.slice(0, 30);
+  if (updates.sortOrder !== undefined && Number.isFinite(updates.sortOrder)) {
+    clean.sortOrder = Math.max(0, Math.min(Math.round(updates.sortOrder), 100000));
+  }
+  try {
+    await updateDoc(doc(db, path), clean);
+  } catch (err) {
+    handleFirestoreError(err, OperationType.UPDATE, path);
+  }
+}
+
+export async function deleteToolFolder(
+  userId: string,
+  folderId: string,
+  toolsReferencing: ExternalTool[]
+): Promise<void> {
+  const folderPath = `users/${userId}/toolFolders/${folderId}`;
+  try {
+    const batch = writeBatch(db);
+    batch.delete(doc(db, folderPath));
+    for (const tool of toolsReferencing) {
+      const currentFolders = Array.isArray(tool.folderIds) ? tool.folderIds : [];
+      if (currentFolders.includes(folderId)) {
+        batch.update(doc(db, `users/${userId}/externalTools`, tool.id), {
+          folderIds: currentFolders.filter((fid) => fid !== folderId),
+          updatedAt: serverTimestamp(),
+        });
+      }
+    }
+    await batch.commit();
+  } catch (err) {
+    handleFirestoreError(err, OperationType.DELETE, folderPath);
+  }
+}
+
+export async function reorderToolFolders(
+  userId: string,
+  orderedFolderIds: string[]
+): Promise<void> {
+  const path = `users/${userId}/toolFolders`;
+  if (orderedFolderIds.length === 0) return;
+  try {
+    const batch = writeBatch(db);
+    orderedFolderIds.forEach((id, idx) => {
+      batch.update(doc(db, path, id), {
+        sortOrder: idx,
+        updatedAt: serverTimestamp(),
+      });
+    });
+    await batch.commit();
+  } catch (err) {
+    handleFirestoreError(err, OperationType.WRITE, path);
   }
 }
 

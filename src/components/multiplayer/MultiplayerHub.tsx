@@ -34,6 +34,7 @@ interface MultiplayerHubProps {
   userName: string;
   folders: Folder[];
   items: StudyItem[];
+  aiEnabled?: boolean;
   onOpenJoinModal: () => void;
 }
 
@@ -50,6 +51,7 @@ export const MultiplayerHub: React.FC<MultiplayerHubProps> = ({
   userName,
   folders,
   items,
+  aiEnabled = false,
   onOpenJoinModal,
 }) => {
   const [myRooms, setMyRooms] = useState<MpMyRoomSummary[]>([]);
@@ -459,7 +461,9 @@ export const MultiplayerHub: React.FC<MultiplayerHubProps> = ({
           </div>
         ) : myRooms.length === 0 ? (
           <div className="p-6 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-dashed border-slate-200 dark:border-slate-800 text-center text-xs text-slate-500 dark:text-slate-400">
-            Je hebt op dit moment nog geen actieve multiplayerkamers. Maak hieronder een nieuw spel aan of doe mee via een 6-cijferige code.
+            {aiEnabled
+              ? 'Je hebt op dit moment nog geen actieve multiplayerkamers. Maak hieronder een nieuw spel aan of doe mee via een 6-cijferige code.'
+              : 'Je hebt op dit moment nog geen actieve multiplayerkamers. Doe mee aan een spel via een 6-cijferige gamecode.'}
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -557,7 +561,7 @@ export const MultiplayerHub: React.FC<MultiplayerHubProps> = ({
       </section>
 
       {/* Room Creation Modal / Drawer */}
-      {selectedGame && (
+      {aiEnabled && selectedGame && (
         <section className="rounded-2xl bg-white dark:bg-[#111827] border-2 border-indigo-500 p-6 space-y-6 shadow-sm">
           <div className="flex items-start justify-between gap-4 border-b border-slate-200 dark:border-slate-800 pb-4">
             <div className="space-y-1">
@@ -771,16 +775,18 @@ export const MultiplayerHub: React.FC<MultiplayerHubProps> = ({
                 </div>
               </div>
 
-              <div className="p-4 pt-0">
-                <button
-                  type="button"
-                  onClick={() => openCreateForm(game)}
-                  className={`w-full py-2.5 px-4 rounded-xl text-white text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors ${game.accentClass}`}
-                >
-                  <Plus className="w-4 h-4" />
-                  <span>Kamer aanmaken</span>
-                </button>
-              </div>
+              {aiEnabled && (
+                <div className="p-4 pt-0">
+                  <button
+                    type="button"
+                    onClick={() => openCreateForm(game)}
+                    className={`w-full py-2.5 px-4 rounded-xl text-white text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors ${game.accentClass}`}
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>Kamer aanmaken</span>
+                  </button>
+                </div>
+              )}
             </div>
           ))}
         </div>

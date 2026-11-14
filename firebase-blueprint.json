@@ -190,19 +190,39 @@
     },
     "ExternalTool": {
       "title": "ExternalTool",
-      "description": "Aanpasbare snelkoppeling naar een externe leertool zoals StudyGo, Quizlet, Gimkit, YouTube of Netflix.",
+      "description": "Aanpasbare snelkoppeling naar een externe leertool met filtervelden, sorteervolgorde en mapkoppeling.",
       "type": "object",
       "properties": {
         "ownerId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
         "name": { "type": "string", "minLength": 1, "maxLength": 80 },
         "url": { "type": "string", "minLength": 1, "maxLength": 500 },
         "subjectLabel": { "type": "string", "maxLength": 80 },
+        "description": { "type": "string", "maxLength": 240 },
+        "gradeYear": { "type": "string", "maxLength": 40 },
+        "level": { "type": "string", "maxLength": 40 },
+        "sortOrder": { "type": "number" },
+        "folderIds": { "type": "array" },
         "color": { "type": "string", "maxLength": 30 },
         "iconName": { "type": "string", "maxLength": 40 },
         "createdAt": { "type": "string", "format": "date-time" },
         "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["ownerId", "name", "url", "subjectLabel", "color", "iconName", "createdAt", "updatedAt"]
+    },
+    "ToolFolder": {
+      "title": "ToolFolder",
+      "description": "Map in het aparte mappen-menu van de Leertools Hub.",
+      "type": "object",
+      "properties": {
+        "ownerId": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "description": { "type": "string", "maxLength": 240 },
+        "color": { "type": "string", "maxLength": 30 },
+        "sortOrder": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["ownerId", "name", "color", "sortOrder", "createdAt", "updatedAt"]
     },
     "GameRoom": {
       "title": "GameRoom",
@@ -301,6 +321,10 @@
     "/users/{userId}/externalTools/{toolId}": {
       "schema": { "$ref": "#/entities/ExternalTool" },
       "description": "Aanpasbare snelkoppelingen naar externe leertools."
+    },
+    "/users/{userId}/toolFolders/{folderId}": {
+      "schema": { "$ref": "#/entities/ToolFolder" },
+      "description": "Mappen voor externe leertools in de Leertools Hub."
     },
     "/gameRooms/{roomCode}": {
       "schema": { "$ref": "#/entities/GameRoom" },

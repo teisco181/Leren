@@ -287,6 +287,7 @@ export const PracticeView: React.FC<PracticeViewProps> = ({
         focusTopic: params.focusTopicToUse?.trim() || undefined,
         settings: effectiveSettings,
         topics: targetSelection?.topics || [],
+        dossierSummary: targetSelection?.dossierSummary || undefined,
         files: filesToSend.map((it) => ({
           id: it.id,
           title: it.title,

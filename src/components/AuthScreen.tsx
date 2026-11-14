@@ -117,11 +117,11 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                 Slimme leer- en studieomgeving
               </p>
               <h1 className="mt-3 text-3xl sm:text-4xl font-bold tracking-tight text-slate-900 dark:text-slate-50 leading-tight [text-wrap:balance]">
-                Studeer effectiever met actieve herinnering en AI-ondersteuning.
+                Studeer effectiever met overzicht en actieve herinnering.
               </h1>
               <p className="mt-4 text-base text-slate-600 dark:text-slate-400 leading-relaxed max-w-lg">
-                Organiseer al je notities en PDF&apos;s per vak, plan automatisch je oefenschema
-                en overhoor jezelf met AI-samenvattingen en realtime multiplayer-quizzen.
+                Organiseer al je notities, samenvattingen en bestanden per vak, plan je oefenmomenten
+                en speel samen realtime multiplayer-quizzen.
               </p>
 
               <div className="mt-8 space-y-4">
@@ -131,10 +131,10 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                   </div>
                   <div>
                     <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-                      Gespreide oefenschema&apos;s &amp; mappen per vak
+                      Weekplanning &amp; mappen per vak
                     </h3>
                     <p className="text-sm text-slate-600 dark:text-slate-400 mt-0.5">
-                      Genereer een realistisch leerplan tot aan je toetsdatum en bewaar alles overzichtelijk.
+                      Houd je leerplan tot aan je toetsdatum overzichtelijk bij op één plek.
                     </p>
                   </div>
                 </div>
@@ -145,10 +145,10 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                   </div>
                   <div>
                     <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-                      Studie-Notebook op basis van jouw eigen bronnen
+                      Notities, samenvattingen &amp; documenten
                     </h3>
                     <p className="text-sm text-slate-600 dark:text-slate-400 mt-0.5">
-                      Vink notities of PDF&apos;s aan en krijg stapsgewijze uitleg zonder ruis.
+                      Upload PDF-, DOCX-, PPTX- en tekstbestanden en schrijf gestructureerde samenvattingen.
                     </p>
                   </div>
                 </div>
@@ -159,10 +159,10 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                   </div>
                   <div>
                     <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-                      Solo mini-games &amp; live multiplayer battles
+                      Oefensets &amp; live multiplayer spellen
                     </h3>
                     <p className="text-sm text-slate-600 dark:text-slate-400 mt-0.5">
-                      Zet leerstof om in flashcards, memory of een realtime quizkamer met 6-cijferige code.
+                      Speel bewaarde oefensets of doe mee met een realtime spelkamer via een 6-cijferige code.
                     </p>
                   </div>
                 </div>

@@ -508,7 +508,7 @@ export const PracticeMaterialAndConfig: React.FC<PracticeMaterialAndConfigProps>
               {analyzingSelection ? (
                 <>
                   <Loader2 className="w-4 h-4 animate-spin" />
-                  <span>Analyseren...</span>
+                  <span>Alle stof grondig analyseren...</span>
                 </>
               ) : (
                 <>
@@ -817,7 +817,7 @@ export const PracticeMaterialAndConfig: React.FC<PracticeMaterialAndConfigProps>
             {startingSession ? (
               <>
                 <Loader2 className="w-4 h-4 animate-spin" />
-                <span>AI maakt vragen uit je bronnen...</span>
+                <span>Volledige leerstof verwerken en vragen maken...</span>
               </>
             ) : (
               <>
